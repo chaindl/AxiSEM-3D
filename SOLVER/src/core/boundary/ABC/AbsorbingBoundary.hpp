@@ -16,8 +16,8 @@
 #include "ClaytonFluid.hpp"
 
 #include "Sponge.hpp"
-typedef Sponge<SolidPoint> SpongeSolid;
-typedef Sponge<FluidPoint> SpongeFluid;
+typedef Sponge<SolidPointWindow> SpongeSolid;
+typedef Sponge<FluidPointWindow> SpongeFluid;
 
 // domain
 #include <map>

@@ -9,9 +9,15 @@
 //  station
 
 #include "Station.hpp"
+#include "Element.hpp"
 
 // set element: inplane weights and Fourier exp
-void Station::setElement(const eigen::DRowN &weights, int nu_1) {
+void Station::setElement(const std::shared_ptr<Element> &element, const eigen::DRowN &weights,
+                         const std::vector<std::pair<int, double>> &windowPhis) {
+    // element
+    mElement = element;
+    mWindowPhis = windowPhis;
+                           
     // indices of non-zero weights
     mNonZeroIndices.clear();
     double rEpsilon = (double)numerical::epsilon<numerical::Real>();
@@ -28,10 +34,15 @@ void Station::setElement(const eigen::DRowN &weights, int nu_1) {
     // 2 * exp(i * alpha * phi) for Fourier interpolation
 #ifndef _SAVE_MEMORY
     // precompute
-    m2ExpIAlphaPhi.resize(nu_1);
-    eigen_tools::computeTwoExpIAlphaPhi(nu_1, mPhi, m2ExpIAlphaPhi);
+    for (int m = 0; m < mWindowPhis.size(); m++) {
+        int nu_1 = mElement->getWindowNu_1(mWindowPhis[m].first);
+        eigen::CColX eiap_m = eigen::CColX::Zero(nu_1);
+        eigen_tools::computeTwoExpIAlphaPhi(nu_1, mWindowPhis[m].second, eiap_m);
+        m2ExpIAlphaPhi.push_back(eiap_m);
+    }
 #else
     // on-the-fly
+    int nu_1 = mElement->getMaxNu_1();
     if (s2ExpIAlphaPhi.rows() < nu_1) {
         s2ExpIAlphaPhi.resize(nu_1);
     }

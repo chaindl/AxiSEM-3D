@@ -1,5 +1,5 @@
 //
-//  NrFieldStructured.hpp
+//  GeneralNrFieldStructured.hpp
 //  AxiSEM3D
 //
 //  Created by Kuangdai Leng on 3/15/20.
@@ -8,19 +8,19 @@
 
 //  structured Nr(s,z)
 
-#ifndef NrFieldStructured_hpp
-#define NrFieldStructured_hpp
+#ifndef GeneralNrFieldStructured_hpp
+#define GeneralNrFieldStructured_hpp
 
-#include "NrField.hpp"
+#include "GeneralNrField.hpp"
 #include "StructuredGrid.hpp"
 
-class NrFieldStructured: public NrField {
+class GeneralNrFieldStructured: public GeneralNrField {
 public:
     // constructor
-    NrFieldStructured(const std::string &fname, int valOutOfRange);
+    GeneralNrFieldStructured(const std::string &fname, int valOutOfRange);
     
     // get nr by (s, z)
-    eigen::IColX getNrAtPoints(const eigen::DMatX2_RM &sz) const;
+    int getNrAtPoint(const eigen::DCol2 &sz) const;
     
     // verbose
     std::string verbose() const;

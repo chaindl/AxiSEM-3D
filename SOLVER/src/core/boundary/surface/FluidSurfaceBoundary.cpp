@@ -11,7 +11,7 @@
 #include "FluidSurfaceBoundary.hpp"
 
 // point
-#include "FluidPoint.hpp"
+#include "FluidPointWindow.hpp"
 
 // domain
 #include "Messaging.hpp"
@@ -20,8 +20,8 @@
 void FluidSurfaceBoundary::apply() const {
     // pressure ≡ 0 or accel ≡ 0
     // so, veloc = disp = everything ≡ 0
-    for (const std::shared_ptr<FluidPoint> &fp: mFluidPoints) {
-        fp->getFields().mStiff.setZero();
+    for (const std::shared_ptr<FluidPointWindow> &fpw: mFluidPointWindows) {
+        fpw->getFields().mStiff.setZero();
     }
 }
 
@@ -29,8 +29,8 @@ void FluidSurfaceBoundary::apply() const {
 int FluidSurfaceBoundary::
 countInfo(const Messaging &msg) const {
     int count = 0;
-    for (const auto &point: mFluidPoints) {
-        if (!msg.pointInSmallerRank(point)) {
+    for (const auto &pw: mFluidPointWindows) {
+        if (!msg.pointInSmallerRank(pw)) {
             count++;
         }
     }

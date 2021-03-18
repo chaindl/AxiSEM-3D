@@ -9,10 +9,12 @@
 //  Newmark time scheme
 
 #include "NewmarkTimeScheme.hpp"
-#include "SolidPoint.hpp"
-#include "FluidPoint.hpp"
+#include "Point.hpp"
 #include "Domain.hpp"
 #include "timer.hpp"
+#include "PointWindow.hpp"
+#include "FluidPointWindow.hpp"
+#include "SolidPointWindow.hpp"
 
 // solve
 void NewmarkTimeScheme::solve() const {
@@ -54,6 +56,11 @@ void NewmarkTimeScheme::solve() const {
         mDomain->applyBC_BeforeAssemblingStiff();
         timers.at("BOUNDARIES").pause();
         
+        // point windows => combined point
+        timers.at("WINDOW_INTERPOLATION").resume();
+        mDomain->combinePointWindows();
+        timers.at("WINDOW_INTERPOLATION").pause();
+        
         // assemble phase 1: gather + send + recv
         timers.at("MPI_COMM").resume();
         mDomain->mpiGatherSendRecv();
@@ -82,10 +89,10 @@ void NewmarkTimeScheme::solve() const {
         mDomain->mpiWaitScatter();
         timers.at("MPI_COMM").pause();
         
-        // boundary conditions after assembling stiffness
-        timers.at("BOUNDARIES").resume();
-        mDomain->applyBC_AfterAssemblingStiff();
-        timers.at("BOUNDARIES").pause();
+        // combined point => point windows
+        timers.at("WINDOW_INTERPOLATION").resume();
+        mDomain->separatePointWindows();
+        timers.at("WINDOW_INTERPOLATION").pause();
         
         // stiff => accel
         timers.at("MASS_TERM").resume();
@@ -99,8 +106,7 @@ void NewmarkTimeScheme::solve() const {
         
         // update fields
         timers.at("TIME_MARCH").resume();
-        update(mDomain->getSolidPoints());
-        update(mDomain->getFluidPoints());
+        update(mDomain->getPoints());
         timers.at("TIME_MARCH").pause();
         
         // march
@@ -129,4 +135,16 @@ void NewmarkTimeScheme::solve() const {
     
     // verbose
     verboseEnd("NEWMARK", timers.at("TOTAL").elapsedTotal(), t);
+}
+
+void NewmarkTimeScheme::update(const std::vector<std::shared_ptr<Point>> &points) const {
+    static const numerical::Real dt = mDt;
+    static const numerical::Real half_dt = .5 * mDt;
+    static const numerical::Real half_dt_dt = .5 * mDt * mDt;
+    for (const std::shared_ptr<Point> &point: points) {
+        for (const std::shared_ptr<PointWindow> &pw: point->getWindows()) {
+            if (pw->getFluidPointWindow()) update(*pw->getFluidPointWindow(), dt, half_dt, half_dt_dt);
+            if (pw->getSolidPointWindow()) update(*pw->getSolidPointWindow(), dt, half_dt, half_dt_dt);
+        }
+    }
 }

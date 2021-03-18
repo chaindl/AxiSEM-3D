@@ -13,19 +13,20 @@
 
 // point
 #include <memory>
-class FluidPoint;
+#include "FluidPointWindow.hpp"
+class Point;
 
 class ClaytonFluid {
 public:
     // constructor
-    ClaytonFluid(const std::shared_ptr<FluidPoint> &fp):
-    mFluidPoint(fp) {
+    ClaytonFluid(const std::shared_ptr<FluidPointWindow> &fpw):
+    mFluidPointWindow(fpw) {
         // nothing
     }
     
     // get point
-    const std::shared_ptr<FluidPoint> &getPoint() const {
-        return mFluidPoint;
+    const std::shared_ptr<const FluidPointWindow> getPointWindow() const {
+        return mFluidPointWindow;
     }
     
     // destructor
@@ -36,7 +37,7 @@ public:
     
 protected:
     // point
-    const std::shared_ptr<FluidPoint> mFluidPoint;
+    const std::shared_ptr<FluidPointWindow> mFluidPointWindow;
 };
 
 #endif /* ClaytonFluid_hpp */

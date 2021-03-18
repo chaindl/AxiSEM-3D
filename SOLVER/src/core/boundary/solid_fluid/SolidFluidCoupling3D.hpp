@@ -16,8 +16,8 @@
 class SolidFluidCoupling3D: public SolidFluidCoupling {
 public:
     // constructor
-    SolidFluidCoupling3D(const std::shared_ptr<SolidPoint> &sp,
-                         const std::shared_ptr<FluidPoint> &fp,
+    SolidFluidCoupling3D(const std::shared_ptr<SolidPointWindow> &spw,
+                         const std::shared_ptr<FluidPointWindow> &fpw,
                          const eigen::DMatX3 &n_unassmb,
                          const eigen::DMatX3 &n_assmb,
                          const eigen::DColX &massFluid);

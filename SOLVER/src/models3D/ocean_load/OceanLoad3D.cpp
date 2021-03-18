@@ -20,16 +20,18 @@ void OceanLoad3D::applyTo(std::vector<Quad> &quads) const {
             // check surface
             int surfEdge = quad.getSurfaceEdge();
             if (surfEdge == -1) {
-                return;
+                continue;
             }
-            // cardinal coordinates
-            const eigen::DMatX3 &spz = computeEdgeSPZ(quad, surfEdge);
-            // compute values
-            eigen::DColX sumRD;
-            bool elemInScope = getSumRhoDepth(spz, quad.getNodalSZ(), sumRD);
-            // set values to quad
-            if (elemInScope) {
-                setSumRhoDepthToQuad(sumRD, quad);
+            for (int m = 0; m < quad.getM(); m++) {
+                // cardinal coordinates
+                const eigen::DMatX3 &spz = computeEdgeSPZ(quad, surfEdge, m);
+                // compute values
+                eigen::DColX sumRD;
+                bool elemInScope = getSumRhoDepth(spz, quad.getNodalSZ(), sumRD);
+                // set values to quad
+                if (elemInScope) {
+                    setSumRhoDepthToQuad(sumRD, quad, m);
+                }
             }
         }
     }
@@ -41,16 +43,28 @@ void OceanLoad3D::applyTo(std::vector<Quad> &quads) const {
             std::vector<eigen::DMat24> szAll;
             if (irank == mpi::rank()) {
                 // gather coords
-                spzAll.reserve(quads.size());
-                szAll.reserve(quads.size());
+                int nwins = 0;
+                for (Quad &quad: quads) {
+                    if (quad.getSurfaceEdge() >= 0) {
+                        nwins += quad.getM();
+                    }
+                }
+                spzAll.reserve(nwins);
+                szAll.reserve(nwins); // not ideal to duplicate sz data, but easiest for comms
+                                      // alternatives: create sendVecVecEigen for spzAll or 
+                                      // build and send global window tags
+                                      
+                if (nwins == 0) continue;
                 for (Quad &quad: quads) {
                     // check surface
                     int surfEdge = quad.getSurfaceEdge();
                     if (surfEdge == -1) {
                         continue;
                     }
-                    spzAll.push_back(computeEdgeSPZ(quad, surfEdge));
-                    szAll.push_back(quad.getNodalSZ());
+                    for (int m = 0; m < quad.getM(); m++) {
+                        spzAll.push_back(computeEdgeSPZ(quad, surfEdge, m));
+                        szAll.push_back(quad.getNodalSZ());
+                    }
                 }
                 // send coords to super
                 mpi::sendVecEigen(0, spzAll, 0);
@@ -65,14 +79,14 @@ void OceanLoad3D::applyTo(std::vector<Quad> &quads) const {
                 mpi::recvVecEigen(irank, spzAll, 0);
                 mpi::recvVecEigen(irank, szAll, 1);
                 // allocate values
-                int nQuad = (int)spzAll.size();
-                sumRD_All.reserve(nQuad);
-                elemInScopeAll.push_back(eigen::IColX::Zero(nQuad));
+                int nWin = (int)spzAll.size();
+                sumRD_All.reserve(nWin);
+                elemInScopeAll.push_back(eigen::IColX::Zero(nWin));
                 // compute values
-                for (int iq = 0; iq < nQuad; iq++) {
+                for (int iw = 0; iw < nWin; iw++) {
                     eigen::DColX sumRD;
-                    elemInScopeAll[0](iq) = getSumRhoDepth(spzAll[iq],
-                                                           szAll[iq], sumRD);
+                    elemInScopeAll[0](iw) = getSumRhoDepth(spzAll[iw],
+                                                           szAll[iw], sumRD);
                     sumRD_All.push_back(sumRD);
                 }
                 // send values to infer
@@ -85,7 +99,7 @@ void OceanLoad3D::applyTo(std::vector<Quad> &quads) const {
                 // recv values from super
                 mpi::recvVecEigen(0, sumRD_All, 0);
                 mpi::recvVecEigen(0, elemInScopeAll, 1);
-                int iq = 0;
+                int iw = 0;    
                 for (Quad &quad: quads) {
                     // check surface
                     int surfEdge = quad.getSurfaceEdge();
@@ -93,10 +107,12 @@ void OceanLoad3D::applyTo(std::vector<Quad> &quads) const {
                         continue;
                     }
                     // set values to quads
-                    if (elemInScopeAll[0](iq)) {
-                        setSumRhoDepthToQuad(sumRD_All[iq], quad);
+                    for (int m = 0; m < quad.getM(); m++) {
+                        if (elemInScopeAll[0](iw)) {
+                            setSumRhoDepthToQuad(sumRD_All[iw], quad, m);
+                        }
+                        iw++;
                     }
-                    iq++;
                 }
             }
             // do irank one by one
@@ -108,11 +124,11 @@ void OceanLoad3D::applyTo(std::vector<Quad> &quads) const {
 
 // set sum(rho * depth) to quad
 void OceanLoad3D::setSumRhoDepthToQuad(const eigen::DColX &sumRhoDepth,
-                                       Quad &quad) const {
+                                       Quad &quad, const int m) const {
     // edge points
     int surfEdge = quad.getSurfaceEdge();
     const std::vector<int> &ipnts = vicinity::constants::gEdgeIPnt[surfEdge];
-    const eigen::IRowN &pointNr = quad.getPointNr();
+    const eigen::IRowN &pointNr = quad.getPointNr(m);
     // flattened to structured
     eigen::arP_DColX sumRD;
     int row = 0;
@@ -122,7 +138,7 @@ void OceanLoad3D::setSumRhoDepthToQuad(const eigen::DColX &sumRhoDepth,
         row += nr;
     }
     // set to Quad
-    quad.getOceanLoadPtr()->addSumRhoDepth(sumRD);
+    quad.getOceanLoadPtr(m)->addSumRhoDepth(sumRD);
 }
 
 

@@ -12,7 +12,7 @@
 
 // domain
 #include "Messaging.hpp"
-#include "SolidPoint.hpp"
+#include "SolidPointWindow.hpp"
 #include "bstring.hpp"
 #include "vector_tools.hpp"
 
@@ -21,7 +21,7 @@ std::map<std::string, int> SolidFluidBoundary::
 countInfo(const Messaging &msg) const {
     std::map<std::string, int> countMap;
     for (const auto &sfc: mSFCs) {
-        if (!msg.pointInSmallerRank(sfc->getSolidPoint())) {
+        if (!msg.pointInSmallerRank(sfc->getSolidPointWindow())) {
             vector_tools::aggregate(countMap, bstring::typeName(*sfc), 1);
         }
     }

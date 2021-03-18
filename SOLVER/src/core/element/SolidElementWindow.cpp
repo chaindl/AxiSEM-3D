@@ -8,8 +8,8 @@
 
 //  solid spectral element
 
-#include "SolidElement.hpp"
-#include "SolidPoint.hpp"
+#include "SolidElementWindow.hpp"
+#include "SolidPointWindow.hpp"
 #include "fft.hpp"
 // output
 #include "mapPPvsN.hpp"
@@ -21,40 +21,36 @@
 using spectral::nPEM;
 
 // constructor
-SolidElement::SolidElement(int quadTag, std::unique_ptr<const GradQuad> &grad,
+SolidElementWindow::SolidElementWindow(std::unique_ptr<const GradQuad> &grad,
                            std::unique_ptr<const PRT> &prt,
                            std::unique_ptr<const Elastic> &elastic,
-                           const std::array<std::shared_ptr<SolidPoint>,
-                           spectral::nPEM> &points):
-Element(quadTag, grad, prt), mElastic(elastic.release()),
+                           const std::array<std::shared_ptr<SolidPointWindow>,
+                           spectral::nPEM> &pointWindows, 
+                           std::array<eigen::RMatX2, 2> overlapPhi):
+ElementWindow(grad, prt, overlapPhi), mElastic(elastic.release()),
 mInFourier((mPRT ? mPRT->is1D() : true) && mElastic->is1D()),
-mPoints(points) {
+mPointWindows(pointWindows) {
     // construct derived
     constructDerived();
 }
 
 // copy constructor
-SolidElement::SolidElement(const SolidElement &other):
-Element(other), mElastic(other.mElastic->clone()),
+SolidElementWindow::SolidElementWindow(const SolidElementWindow &other):
+ElementWindow(other), mElastic(other.mElastic->clone()),
 mInFourier((mPRT ? mPRT->is1D() : true) && mElastic->is1D()),
-mPoints(other.mPoints) {
+mPointWindows(other.mPointWindows) {
     // construct derived
     constructDerived();
 }
 
 // construct derived
-void SolidElement::constructDerived() {
+void SolidElementWindow::constructDerived() {
     // point set
-    pointSet(mInFourier);
+    pointWindowSet(mInFourier);
     
     // check compatibility
     mElastic->checkCompatibility(mNr, mInFourier);
-    
-    // crd transform
-    if (mElastic->inRTZ()) {
-        setToRTZ_ByMaterialOrPRT();
-    }
-    
+
     // workspace
     if (sStrainSpherical_CD.rows() < mNr) {
         expandWorkspace(mNr);
@@ -71,8 +67,8 @@ void SolidElement::constructDerived() {
 }
 
 // type info
-std::string SolidElement::typeInfo() const {
-    std::string info = "SolidElement";
+std::string SolidElementWindow::typeInfo() const {
+    std::string info = "SolidElementWindow";
     if (mPRT) {
         if (mPRT->is1D()) {
             info = info + "$PRT1D";
@@ -91,40 +87,96 @@ std::string SolidElement::typeInfo() const {
 
 /////////////////////////// point ///////////////////////////
 // get point
-Point &SolidElement::getPoint(int ipnt) const {
-    return *(mPoints[ipnt]);
+PointWindow &SolidElementWindow::getPointWindow(int ipnt) const {
+    return *(mPointWindows[ipnt]);
 }
 
+int SolidElementWindow::getMaxNrFromPoints() const {
+  int nr = 1;
+  for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
+        nr = std::max(mPointWindows[ipnt]->getNr(), nr);
+  }
+  return nr;
+}
+
+void SolidElementWindow::randomPointWindowsDispl() const {
+    for (auto pw: mPointWindows) {
+        pw->randomDispl();
+    }
+}
+
+void SolidElementWindow::resetPointWindowsToZero() const {
+    for (auto pw: mPointWindows) {
+        pw->resetToZero();
+    }
+}
 
 /////////////////////////// time loop ///////////////////////////
 // collect displacement from points
-void SolidElement::
-collectDisplFromPoints(eigen::vec_ar3_CMatPP_RM &displElem) const {
+void SolidElementWindow::
+collectDisplFromPointWindows(eigen::vec_ar3_CMatPP_RM &displElem) const {
     for (int ipol = 0; ipol < spectral::nPED; ipol++) {
         for (int jpol = 0; jpol < spectral::nPED; jpol++) {
-            mPoints[ipol * spectral::nPED + jpol]->
-            scatterDisplToElement(displElem, mNu_1, ipol, jpol);
+            mPointWindows[ipol * spectral::nPED + jpol]->
+            scatterDisplToElementWindow(displElem, mNu_1, ipol, jpol);
         }
     }
 }
 
-// displacement to stiffness
-void SolidElement::
-displToStiff(const eigen::vec_ar3_CMatPP_RM &displElem,
-             eigen::vec_ar3_CMatPP_RM &stiffElem) const {
+void SolidElementWindow::displToStrain() const {
+    collectDisplFromPointWindows(sDisplSpherical_FR);
     if (mPRT) {
-        /////////////// with PRT, strain in 3 * 3 ///////////////
-        // disp to strain
-        mGradQuad->computeGrad9(displElem, sStrainSpherical_FR, mNu_1);
-        mTransform->transformSPZ_RTZ9(sStrainSpherical_FR, mNu_1);
-        
-        // strain to stress
+        mGradQuad->computeGrad9(sDisplSpherical_FR, sStrainSpherical_FR, mNu_1);
+    } else {
+        mGradQuad->computeGrad6(sDisplSpherical_FR, sStrainUndulated_FR, mNu_1);
+    }
+}
+
+void SolidElementWindow::transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform) const {
+    if (mPRT) {
+        transform->transformSPZ_RTZ9(sStrainSpherical_FR, mNu_1);
         if (mInFourier) {
             mPRT->sphericalToUndulated6_FR(sStrainSpherical_FR,
                                            sStrainUndulated_FR, mNu_1);
+
+        } else {
+            fft::gFFT_N9.computeC2R(sStrainSpherical_FR,
+                                    sStrainSpherical_CD, mNr);
+            mPRT->sphericalToUndulated6_CD(sStrainSpherical_CD,
+                                           sStrainUndulated_CD, mNr);
+        }
+    } else {
+        if (mElastic->inRTZ()) {
+            transform->transformSPZ_RTZ6(sStrainUndulated_FR, mNu_1);
+        }
+        if (!mInFourier) fft::gFFT_N6.computeC2R(sStrainUndulated_FR,
+                                    sStrainUndulated_CD, mNr);
+    }
+}
+
+void SolidElementWindow::strainToStress() const {
+    if (mPRT) {
+        if (mInFourier) {
             mElastic->strainToStress_FR(sStrainUndulated_FR,
                                         sStressUndulated_FR, mNu_1);
-            // record stress if needed for output
+        } else {
+            mElastic->strainToStress_CD(sStrainUndulated_CD,
+                                        sStressUndulated_CD, mNr);
+        }
+    } else {
+       if (mInFourier) {
+           mElastic->strainToStress_FR(sStrainUndulated_FR,
+                                       sStressUndulated_FR, mNu_1);
+       } else {
+           mElastic->strainToStress_CD(sStrainUndulated_CD,
+                                       sStressUndulated_CD, mNr);
+       }
+    }
+}
+
+void SolidElementWindow::transformStressToFourier(const std::shared_ptr<const CoordTransform> &transform) const {
+    if (mPRT) {
+        if (mInFourier) {
             if (mStressBuffer->size() > 0) {
                 for (int alpha = 0; alpha < mNu_1; alpha++) {
                     for (int idim = 0; idim < 6; idim++) {
@@ -136,12 +188,6 @@ displToStiff(const eigen::vec_ar3_CMatPP_RM &displElem,
             mPRT->undulatedToSpherical6_FR(sStressUndulated_FR,
                                            sStressSpherical_FR, mNu_1);
         } else {
-            fft::gFFT_N9.computeC2R(sStrainSpherical_FR,
-                                    sStrainSpherical_CD, mNr);
-            mPRT->sphericalToUndulated6_CD(sStrainSpherical_CD,
-                                           sStrainUndulated_CD, mNr);
-            mElastic->strainToStress_CD(sStrainUndulated_CD,
-                                        sStressUndulated_CD, mNr);
             // record stress if needed for output
             if (mStressBuffer->size() > 0) {
                 //*** additional support required from gFFT_N6 ***//
@@ -153,31 +199,11 @@ displToStiff(const eigen::vec_ar3_CMatPP_RM &displElem,
             fft::gFFT_N9.computeR2C(sStressSpherical_CD,
                                     sStressSpherical_FR, mNr);
         }
-        
-        // stress to stiffness
-        mTransform->transformRTZ_SPZ9(sStressSpherical_FR, mNu_1);
-        mGradQuad->computeQuad9(sStressSpherical_FR, stiffElem, mNu_1);
+        transform->transformRTZ_SPZ9(sStressSpherical_FR, mNu_1);   
     } else {
-        /////////////// without PRT, strain in 6 * 1, Voigt ///////////////
-        // disp to strain
-        mGradQuad->computeGrad6(displElem, sStrainUndulated_FR, mNu_1);
-        if (mElastic->inRTZ()) {
-            mTransform->transformSPZ_RTZ6(sStrainUndulated_FR, mNu_1);
-        }
-        
-        // strain to stress
-        if (mInFourier) {
-            mElastic->strainToStress_FR(sStrainUndulated_FR,
-                                        sStressUndulated_FR, mNu_1);
-        } else {
-            fft::gFFT_N6.computeC2R(sStrainUndulated_FR,
-                                    sStrainUndulated_CD, mNr);
-            mElastic->strainToStress_CD(sStrainUndulated_CD,
-                                        sStressUndulated_CD, mNr);
-            fft::gFFT_N6.computeR2C(sStressUndulated_CD,
+        if (!mInFourier) fft::gFFT_N6.computeR2C(sStressUndulated_CD,
                                     sStressUndulated_FR, mNr);
-        }
-        
+                                    
         // record stress if needed for output
         // record before rotation to keep RTZ consistent with strain
         if (mStressBuffer->size() > 0) {
@@ -191,76 +217,68 @@ displToStiff(const eigen::vec_ar3_CMatPP_RM &displElem,
         
         // stress to stiffness
         if (mElastic->inRTZ()) {
-            mTransform->transformRTZ_SPZ6(sStressUndulated_FR, mNu_1);
+            transform->transformRTZ_SPZ6(sStressUndulated_FR, mNu_1);
         }
-        mGradQuad->computeQuad6(sStressUndulated_FR, stiffElem, mNu_1);
     }
+}
+
+void SolidElementWindow::stressToStiffness() const {
+    if (mPRT) {
+        mGradQuad->computeQuad9(sStressSpherical_FR, sStiffSpherical_FR, mNu_1);
+    } else {
+        mGradQuad->computeQuad6(sStressUndulated_FR, sStiffSpherical_FR, mNu_1);
+    }
+    addStiffToPointWindows(sStiffSpherical_FR);
 }
 
 // add stiffness to points
 // allow a derived class to change stiffElem (no const)
-void SolidElement::
-addStiffToPoints(eigen::vec_ar3_CMatPP_RM &stiffElem) const {
+void SolidElementWindow::
+addStiffToPointWindows(eigen::vec_ar3_CMatPP_RM &stiffElem) const {
     for (int ipol = 0; ipol < spectral::nPED; ipol++) {
         for (int jpol = 0; jpol < spectral::nPED; jpol++) {
-            mPoints[ipol * spectral::nPED + jpol]->
-            gatherStiffFromElement(stiffElem, ipol, jpol);
+            mPointWindows[ipol * spectral::nPED + jpol]->
+            gatherStiffFromElementWindow(stiffElem, ipol, jpol);
         }
     }
 }
 
-// compute stiffness term
-void SolidElement::computeStiff() const {
-    // collect displacement from points
-    collectDisplFromPoints(sDisplSpherical_FR);
-    
-    // displacement to stiffness
-    displToStiff(sDisplSpherical_FR, sStiffSpherical_FR);
-    
-    // add stiffness to points
-    addStiffToPoints(sStiffSpherical_FR);
+void SolidElementWindow::getStrainForInterp(eigen::RColX &strain, const int side, const int dim) const {
+    int nrows = getNrOverlap(side);
+    if (side == 0) {
+        strain.topRows(nrows) = sStrainUndulated_CD.col(dim).topRows(nrows);
+    } else if (side == 1) {
+        strain.topRows(nrows) = sStrainUndulated_CD.col(dim).bottomRows(nrows);
+    }
 }
-
-// measure cost
-double SolidElement::measure(int count) const {
-    // random displacement
-    for (int ipnt = 0; ipnt < nPEM; ipnt++) {
-        mPoints[ipnt]->randomDispl();
+    
+void SolidElementWindow::addOverlapToStrain(const eigen::RColX &strain, const int side, const int dim) const {
+    int nrows = getNrOverlap(side);
+    if (side == 0) {
+        sStrainUndulated_CD.col(dim).topRows(nrows - 1) += strain.topRows(nrows).bottomRows(nrows - 1);
+        sStrainUndulated_CD.col(dim).topRows(nrows) = sStrainUndulated_CD.col(dim).topRows(nrows).cwiseProduct(mOverlapPhi[side].col(1));
+    } else if (side == 1) {
+        sStrainUndulated_CD.col(dim).bottomRows(nrows - 1) += strain.topRows(nrows).topRows(nrows - 1);
+        sStrainUndulated_CD.col(dim).bottomRows(nrows) = sStrainUndulated_CD.col(dim).bottomRows(nrows).cwiseProduct(mOverlapPhi[side].col(1));
     }
-    // measure
-    SimpleTimer tm;
-    tm.start();
-    for (int irep = 0; irep < count; irep++) {
-        computeStiff();
-    }
-    tm.pause();
-    // reset to zero
-    for (int ipnt = 0; ipnt < nPEM; ipnt++) {
-        mPoints[ipnt]->resetToZero();
-    }
-    // memory variables in attenuation
-    mElastic->resetToZero();
-    // return total, not divided by count
-    return tm.elapsedTotal();
 }
-
 
 /////////////////////////// source ///////////////////////////
 // prepare force source (force given in SPZ)
-void SolidElement::prepareForceSource() const {
+void SolidElementWindow::prepareForceSource() const {
     // seems nothing
 }
 
 // add force source (force given in SPZ)
-void SolidElement::addForceSource(const eigen::CMatXN3 &force,
+void SolidElementWindow::addForceSource(const eigen::CMatXN3 &force,
                                   int nu_1_force) const {
     for (int ipnt = 0; ipnt < nPEM; ipnt++) {
-        mPoints[ipnt]->addForceSource(force, nu_1_force, ipnt);
+        mPointWindows[ipnt]->addForceSource(force, nu_1_force, ipnt);
     }
 }
 
 // prepare moment source (moment tensor given in SPZ)
-void SolidElement::prepareMomentSource() const {
+void SolidElementWindow::prepareMomentSource() const {
     // requires FFT N6 even with PRT
     if (mPRT) {
         if (!(mPRT->is1D())) {
@@ -270,8 +288,8 @@ void SolidElement::prepareMomentSource() const {
 }
 
 // add moment source (moment tensor given in SPZ)
-void SolidElement::addMomentSource(const eigen::CMatXN6 &moment,
-                                   int nu_1_moment) const {
+void SolidElementWindow::addMomentSource(const eigen::CMatXN6 &moment,
+                                   int nu_1_moment, const std::shared_ptr<const CoordTransform> &transform) const {
     // pad source with zeros if source has lower order than element
     // truncate source if source has higher order than element
     int nu_1_coexist = std::min(mNu_1, nu_1_moment);
@@ -299,7 +317,7 @@ void SolidElement::addMomentSource(const eigen::CMatXN6 &moment,
                 sStressUndulated_FR[alpha][idim] *= (numerical::Real)2.;
             }
         }
-        mTransform->transformSPZ_RTZ6(sStressUndulated_FR, nu_1_source);
+        transform->transformSPZ_RTZ6(sStressUndulated_FR, nu_1_source);
         for (int alpha = 0; alpha < nu_1_source; alpha++) {
             // dims 3, 4, 5 are shear components
             for (int idim = 3; idim < 6; idim++) {
@@ -326,7 +344,7 @@ void SolidElement::addMomentSource(const eigen::CMatXN6 &moment,
         }
         
         // stress to stiffness
-        mTransform->transformRTZ_SPZ9(sStressSpherical_FR, nu_1_source);
+        transform->transformRTZ_SPZ9(sStressSpherical_FR, nu_1_source);
         mGradQuad->computeQuad9_NoIntegration(sStressSpherical_FR,
                                               sStiffSpherical_FR, nu_1_source);
     } else {
@@ -349,8 +367,8 @@ void SolidElement::addMomentSource(const eigen::CMatXN6 &moment,
     //       is incorrect if the moment tensor is on the injection boundary
     for (int ipol = 0; ipol < spectral::nPED; ipol++) {
         for (int jpol = 0; jpol < spectral::nPED; jpol++) {
-            mPoints[ipol * spectral::nPED + jpol]->
-            gatherStiffFromElement(sStiffSpherical_FR, ipol, jpol);
+            mPointWindows[ipol * spectral::nPED + jpol]->
+            gatherStiffFromElementWindow(sStiffSpherical_FR, ipol, jpol);
         }
     }
 }
@@ -358,9 +376,8 @@ void SolidElement::addMomentSource(const eigen::CMatXN6 &moment,
 
 /////////////////////////// wavefield output ///////////////////////////
 // prepare wavefield output
-void SolidElement::
-prepareWavefieldOutput(const channel::solid::ChannelOptions &chops,
-                       bool enforceCoordTransform) {
+bool SolidElementWindow::
+prepareWavefieldOutput(const channel::solid::ChannelOptions &chops) {
     // buffer
     if (chops.mNeedBufferS) {
         mStressBuffer->resize(mNu_1);
@@ -372,34 +389,34 @@ prepareWavefieldOutput(const channel::solid::ChannelOptions &chops,
     }
     
     // coord
-    if (enforceCoordTransform) {
-        bool needRTZ = (chops.mWCS == channel::WavefieldCS::RTZ);
-        if (chops.mNeedBufferU && displInRTZ() != needRTZ) {
-            createCoordTransform();
-        }
-        if (chops.mNeedBufferG && nablaInRTZ() != needRTZ) {
-            createCoordTransform();
-        }
-        if (chops.mNeedBufferE && strainInRTZ() != needRTZ) {
-            createCoordTransform();
-        }
-        if (chops.mNeedBufferR && curlInRTZ() != needRTZ) {
-            createCoordTransform();
-        }
-        if (chops.mNeedBufferS && stressInRTZ() != needRTZ) {
-            createCoordTransform();
-        }
+    bool needTransform;
+    bool needRTZ = (chops.mWCS == channel::WavefieldCS::RTZ);
+    if (chops.mNeedBufferU && displInRTZ() != needRTZ) {
+        needTransform = true;
     }
+    if (chops.mNeedBufferG && nablaInRTZ() != needRTZ) {
+        needTransform = true;
+    }
+    if (chops.mNeedBufferE && strainInRTZ() != needRTZ) {
+        needTransform = true;
+    }
+    if (chops.mNeedBufferR && curlInRTZ() != needRTZ) {
+        needTransform = true;
+    }
+    if (chops.mNeedBufferS && stressInRTZ() != needRTZ) {
+        needTransform = true;
+    }
+    return needTransform;
 }
 
 // displ field
-void SolidElement::getDisplField(eigen::CMatXN3 &displ, bool needRTZ) const {
+void SolidElementWindow::getDisplField(eigen::CMatXN3 &displ, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
     // collect displacement from points
-    collectDisplFromPoints(sDisplSpherical_FR);
+    collectDisplFromPointWindows(sDisplSpherical_FR);
     
     // coord
     if (needRTZ) {
-        mTransform->transformSPZ_RTZ3(sDisplSpherical_FR, mNu_1);
+        transform->transformSPZ_RTZ3(sDisplSpherical_FR, mNu_1);
     }
     
     // copy
@@ -407,9 +424,9 @@ void SolidElement::getDisplField(eigen::CMatXN3 &displ, bool needRTZ) const {
 }
 
 // nabla field
-void SolidElement::getNablaField(eigen::CMatXN9 &nabla, bool needRTZ) const {
+void SolidElementWindow::getNablaField(eigen::CMatXN9 &nabla, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
     // collect displacement from points
-    collectDisplFromPoints(sDisplSpherical_FR);
+    collectDisplFromPointWindows(sDisplSpherical_FR);
     
     // displ to nabla, use sStressSpherical as temp storage
     eigen::vec_ar9_CMatPP_RM &sStrainUndulated9_FR = sStressSpherical_FR;
@@ -417,7 +434,7 @@ void SolidElement::getNablaField(eigen::CMatXN9 &nabla, bool needRTZ) const {
     if (mPRT) {
         mGradQuad->computeGrad9(sDisplSpherical_FR,
                                 sStrainSpherical_FR, mNu_1);
-        mTransform->transformSPZ_RTZ9(sStrainSpherical_FR, mNu_1);
+        transform->transformSPZ_RTZ9(sStrainSpherical_FR, mNu_1);
         if (mInFourier) {
             mPRT->sphericalToUndulated9_FR(sStrainSpherical_FR,
                                            sStrainUndulated9_FR, mNu_1);
@@ -430,13 +447,13 @@ void SolidElement::getNablaField(eigen::CMatXN9 &nabla, bool needRTZ) const {
                                     sStrainUndulated9_FR, mNr);
         }
         if (!needRTZ) {
-            mTransform->transformRTZ_SPZ9(sStrainUndulated9_FR, mNu_1);
+            transform->transformRTZ_SPZ9(sStrainUndulated9_FR, mNu_1);
         }
     } else {
         mGradQuad->computeGrad9(sDisplSpherical_FR,
                                 sStrainUndulated9_FR, mNu_1);
         if (needRTZ) {
-            mTransform->transformSPZ_RTZ9(sStrainUndulated9_FR, mNu_1);
+            transform->transformSPZ_RTZ9(sStrainUndulated9_FR, mNu_1);
         }
     }
     
@@ -445,15 +462,11 @@ void SolidElement::getNablaField(eigen::CMatXN9 &nabla, bool needRTZ) const {
 }
 
 // strain field
-void SolidElement::getStrainField(eigen::CMatXN6 &strain, bool needRTZ) const {
-    // collect displacement from points
-    collectDisplFromPoints(sDisplSpherical_FR);
-    
-    // displ to strain
+void SolidElementWindow::getStrainField(eigen::CMatXN6 &strain, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
+
+    displToStrain();
     if (mPRT) {
-        mGradQuad->computeGrad9(sDisplSpherical_FR,
-                                sStrainSpherical_FR, mNu_1);
-        mTransform->transformSPZ_RTZ9(sStrainSpherical_FR, mNu_1);
+        transform->transformSPZ_RTZ9(sStrainSpherical_FR, mNu_1);
         if (mInFourier) {
             mPRT->sphericalToUndulated6_FR(sStrainSpherical_FR,
                                            sStrainUndulated_FR, mNu_1);
@@ -474,7 +487,7 @@ void SolidElement::getStrainField(eigen::CMatXN6 &strain, bool needRTZ) const {
                     sStrainUndulated_FR[alpha][idim] *= (numerical::Real).5;
                 }
             }
-            mTransform->transformRTZ_SPZ6(sStrainUndulated_FR, mNu_1);
+            transform->transformRTZ_SPZ6(sStrainUndulated_FR, mNu_1);
             for (int alpha = 0; alpha < mNu_1; alpha++) {
                 // dims 3, 4, 5 are shear components
                 for (int idim = 3; idim < 6; idim++) {
@@ -483,10 +496,8 @@ void SolidElement::getStrainField(eigen::CMatXN6 &strain, bool needRTZ) const {
             }
         }
     } else {
-        mGradQuad->computeGrad6(sDisplSpherical_FR,
-                                sStrainUndulated_FR, mNu_1);
         if (needRTZ) {
-            mTransform->transformSPZ_RTZ6(sStrainUndulated_FR, mNu_1);
+            transform->transformSPZ_RTZ6(sStrainUndulated_FR, mNu_1);
         }
     }
     
@@ -495,9 +506,9 @@ void SolidElement::getStrainField(eigen::CMatXN6 &strain, bool needRTZ) const {
 }
 
 // curl field
-void SolidElement::getCurlField(eigen::CMatXN3 &curl, bool needRTZ) const {
+void SolidElementWindow::getCurlField(eigen::CMatXN3 &curl, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
     // collect displacement from points
-    collectDisplFromPoints(sDisplSpherical_FR);
+    collectDisplFromPointWindows(sDisplSpherical_FR);
     
     // displ to nabla, use sStressSpherical as temp storage
     eigen::vec_ar9_CMatPP_RM &sStrainUndulated9_FR = sStressSpherical_FR;
@@ -505,7 +516,7 @@ void SolidElement::getCurlField(eigen::CMatXN3 &curl, bool needRTZ) const {
     if (mPRT) {
         mGradQuad->computeGrad9(sDisplSpherical_FR,
                                 sStrainSpherical_FR, mNu_1);
-        mTransform->transformSPZ_RTZ9(sStrainSpherical_FR, mNu_1);
+        transform->transformSPZ_RTZ9(sStrainSpherical_FR, mNu_1);
         if (mInFourier) {
             mPRT->sphericalToUndulated9_FR(sStrainSpherical_FR,
                                            sStrainUndulated9_FR, mNu_1);
@@ -535,9 +546,9 @@ void SolidElement::getCurlField(eigen::CMatXN3 &curl, bool needRTZ) const {
     
     // coord
     if (needRTZ && !curlInRTZ()) {
-        mTransform->transformSPZ_RTZ3(sCurlUndulated_FR, mNu_1);
+        transform->transformSPZ_RTZ3(sCurlUndulated_FR, mNu_1);
     } else if (!needRTZ && curlInRTZ()) {
-        mTransform->transformRTZ_SPZ3(sCurlUndulated_FR, mNu_1);
+        transform->transformRTZ_SPZ3(sCurlUndulated_FR, mNu_1);
     }
     
     // copy
@@ -545,7 +556,7 @@ void SolidElement::getCurlField(eigen::CMatXN3 &curl, bool needRTZ) const {
 }
 
 // stress field
-void SolidElement::getStressField(eigen::CMatXN6 &stress, bool needRTZ) const {
+void SolidElementWindow::getStressField(eigen::CMatXN6 &stress, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
     // coord
     if (needRTZ && !stressInRTZ()) {
         // change to Voigt convention for strain before rotation
@@ -555,7 +566,7 @@ void SolidElement::getStressField(eigen::CMatXN6 &stress, bool needRTZ) const {
                 (*mStressBuffer)[alpha][idim] *= (numerical::Real)2.;
             }
         }
-        mTransform->transformSPZ_RTZ6(*mStressBuffer, mNu_1);
+        transform->transformSPZ_RTZ6(*mStressBuffer, mNu_1);
         for (int alpha = 0; alpha < mNu_1; alpha++) {
             // dims 3, 4, 5 are shear components
             for (int idim = 3; idim < 6; idim++) {
@@ -563,7 +574,7 @@ void SolidElement::getStressField(eigen::CMatXN6 &stress, bool needRTZ) const {
             }
         }
     } else if (!needRTZ && stressInRTZ()) {
-        mTransform->transformRTZ_SPZ6(*mStressBuffer, mNu_1);
+        transform->transformRTZ_SPZ6(*mStressBuffer, mNu_1);
     }
     
     // copy

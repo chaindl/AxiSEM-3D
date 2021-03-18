@@ -8,19 +8,22 @@
 
 //  solid GLL point
 
-#ifndef SolidPoint_hpp
-#define SolidPoint_hpp
+#ifndef SolidPointWindow_hpp
+#define SolidPointWindow_hpp
 
-#include "Point.hpp"
+#include "PointWindow.hpp"
 #include "eigen_element.hpp"
+#include "Scanning1D.hpp"
+
 class TimeScheme;
 
-class SolidPoint: public Point {
+class SolidPointWindow: public PointWindow {
 public:
     // constructor
-    SolidPoint(int nr, const eigen::DRow2 &crds, int meshTag,
+    SolidPointWindow(const eigen::RMatX2 &windowSumPhi,
                std::unique_ptr<const Mass> &mass,
-               const TimeScheme &timeScheme);
+               const TimeScheme &timeScheme,
+               const std::shared_ptr<Point> point);
     
 public:
     /////////////////////////// measure ///////////////////////////
@@ -39,33 +42,11 @@ public:
     // reset to zero
     void resetToZero() {
         mFields.mStiff.setZero();
+        mFields.mStiffR.setZero();
         mFields.mDispl.setZero();
         mFields.mVeloc.setZero();
         mFields.mAccel.setZero();
     }
-    
-    
-    /////////////////////////// mpi ///////////////////////////
-    // size for mpi communication
-    int sizeComm() const {
-        return (int)mFields.mStiff.size();
-    }
-    
-    // feed to mpi buffer
-    void feedComm(eigen::CColX &buffer, int &row) const {
-        buffer.block(row, 0, mFields.mStiff.size(), 1) =
-        Eigen::Map<const eigen::CColX>(mFields.mStiff.data(),
-                                       mFields.mStiff.size());
-        row += mFields.mStiff.size();
-    }
-    
-    // extract from mpi buffer
-    void extractComm(const eigen::CColX &buffer, int &row) {
-        mFields.mStiff +=
-        Eigen::Map<const eigen::CMatX3>(&buffer(row), mFields.mStiff.rows(), 3);
-        row += mFields.mStiff.size();
-    }
-    
     
     /////////////////////////// time loop ///////////////////////////
     // check stability
@@ -74,12 +55,21 @@ public:
     }
     
     // stiff to accel
+    void transformToPhysical();
     void computeStiffToAccel();
+    void transformToFourier();
+    void applyPressureSource();
     
+    /////////////////////////// window sum  ///////////////////////////
+
+    eigen::RColX getStiffForWindowSum(const int i) {return mFields.mStiffR.col(i);};
+    void collectStiffFromWindowSum(const eigen::RColX &stiff, const int i) {
+        mFields.mStiffR.col(i) = stiff.cwiseProduct(mWindowSumFrac);
+    }
     
     /////////////////////////// element ///////////////////////////
     // scatter displ to element
-    void scatterDisplToElement(eigen::vec_ar3_CMatPP_RM &displ,
+    void scatterDisplToElementWindow(eigen::vec_ar3_CMatPP_RM &displ,
                                int nu_1_element, int ipol, int jpol) const {
         // copy lower orders
         for (int alpha = 0; alpha < mNu_1; alpha++) {
@@ -98,7 +88,7 @@ public:
     }
     
     // gather stiff from element
-    void gatherStiffFromElement(const eigen::vec_ar3_CMatPP_RM &stiff,
+    void gatherStiffFromElementWindow(const eigen::vec_ar3_CMatPP_RM &stiff,
                                 int ipol, int jpol) {
         // add lower orders only
         for (int alpha = 0; alpha < mNu_1; alpha++) {
@@ -122,9 +112,13 @@ public:
     
     
     /////////////////////////// fields ///////////////////////////
+
+    SolidPointWindow* getSolidPointWindow() {return this;};
+    
     // fields on a solid point
     struct Fields {
         eigen::CMatX3 mStiff = eigen::CMatX3(0, 3);
+        eigen::RMatX3 mStiffR = eigen::RMatX3(0, 3);
         eigen::CMatX3 mDispl = eigen::CMatX3(0, 3);
         eigen::CMatX3 mVeloc = eigen::CMatX3(0, 3);
         eigen::CMatX3 mAccel = eigen::CMatX3(0, 3);
@@ -158,7 +152,7 @@ public:
     
     // do scanning
     void doScanning(numerical::Real relTolFourierH2, numerical::Real relTolH2,
-                    numerical::Real absTolH2, int maxNumPeaks) const {
+                    numerical::Real absTolH2, int maxNumPeaks) {
         if (mScanningS) {
             mScanningS->doScanning(relTolFourierH2, relTolH2, absTolH2,
                                    maxNumPeaks, mFields.mDispl.col(0));

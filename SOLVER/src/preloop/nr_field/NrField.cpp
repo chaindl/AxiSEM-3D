@@ -1,63 +1,396 @@
-//
-//  NrField.cpp
-//  AxiSEM3D
-//
-//  Created by Kuangdai Leng on 3/14/20.
-//  Copyright © 2020 Kuangdai Leng. All rights reserved.
-//
-
-//  base class of Nr(s,z)
-
 #include "NrField.hpp"
 #include "inparam.hpp"
-#include "NrFieldConstant.hpp"
-#include "NrFieldAnalytical.hpp"
-#include "NrFieldPointwise.hpp"
-#include "NrFieldStructured.hpp"
-#include "timer.hpp"
+#include "LocalizedNr.hpp"
+#include "LocalizedNrField.hpp"
+#include "GeneralNrField.hpp"
+#include "window_tools.hpp"
 #include "ExodusMesh.hpp"
 
-// build from inparam
-std::unique_ptr<const NrField> NrField::
-buildInparam(const ExodusMesh &exodusMesh) {
-    // read type and lucky number
-    const std::string &type = inparam::gInparamNr.
-    getWithLimits<std::string>("type_Nr", {
-        {"CONSTANT", "CONSTANT"},
-        {"ANALYTICAL", "ANALYTICAL"},
-        {"POINTWISE", "POINTWISE"},
-        {"STRUCTURED", "STRUCTURED"}});
+NrField::NrField(const ExodusMesh &exodusMesh) {
+    mDistTol = exodusMesh.getGlobalVariable("dist_tolerance");
+  
+    mGeneralNrField = GeneralNrField::buildInparam(mDistTol);
+    LocalizedNrField::buildInparam(mLocalizedNrFields, mGeneralNrField, mDistTol);
+
+    mBoundByInplane = inparam::gInparamNr.get<bool>("bound_Nr_by_inplane");
+    if (mBoundByInplane) mAveGLLSpacing = exodusMesh.computeAveGLLSpacing();
+    mUseLuckyNumbers = inparam::gInparamAdvanced.get<bool>("develop:fftw_lucky_numbers");
     
-    // type-dependent
-    timer::gPreloopTimer.begin("Building Nr(s,z) of type " + type);
-    std::unique_ptr<const NrField> nrField;
-    if (type == "CONSTANT") {
-        int nr = inparam::gInparamNr.getWithBounds("constant", 1);
-        nrField = std::make_unique<const NrFieldConstant>(nr);
-        
-    } else if (type == "ANALYTICAL") {
-        nrField = std::make_unique<const NrFieldAnalytical>();
-        
-    } else if (type == "POINTWISE") {
-        const std::string &fname =
-        inparam::gInparamNr.get<std::string>("pointwise:nc_data_file");
-        const double &factor =
-        inparam::gInparamNr.get<double>("pointwise:multip_factor");
-        nrField = std::make_unique<const NrFieldPointwise>
-        (fname, factor, exodusMesh.getGlobalVariable("dist_tolerance"));
-        
-    } else if (type == "STRUCTURED") {
-        const std::string &fname =
-        inparam::gInparamNr.get<std::string>("structured:nc_data_file");
-        int valOOR =
-        inparam::gInparamNr.getWithBounds("structured:value_out_of_range", 0);
-        nrField = std::make_unique<const NrFieldStructured>(fname, valOOR);
-    } else {
-        // impossible
-        throw std::runtime_error("NrField::buildInparam || Impossible.");
+    mOverlapMinNr = inparam::gInparamNr.get<int>("Nr_windows:min_points_overlap"); // including 0 point but not including 1 point, min = 2
+    mOverlapPhi = inparam::gInparamNr.get<double>("Nr_windows:phi_overlap") * numerical::dDegree;
+    mWindowSize = inparam::gInparamNr.get<int>("Nr_windows:azimuthal_window_size");
+    mAlign = inparam::gInparamNr.get<bool>("Nr_windows:align_azimuthal_sampling_points");
+
+    mWindowMinNr = 2 * mOverlapMinNr + 1;
+}
+
+std::vector<std::pair<double, double>> NrField::makeNodalNrAtPoint(const eigen::DCol2 &sz) const {
+    // create a single window if using global nr only
+    if (mLocalizedNrFields.size() == 0) {
+        int nr_global = mGeneralNrField->getNrAtPoint(sz);
+        if (mBoundByInplane) {
+            int maxNrUpscaled = std::max((int)round(2 * numerical::dPi * sz(0) / mAveGLLSpacing), 1);
+            if (sz(0) < mDistTol) maxNrUpscaled = 5;
+            nr_global = std::min(nr_global, maxNrUpscaled);
+        }
+        std::vector<std::pair<double, double>> NrWindows(1, std::make_pair(0., nr_global));
+        return NrWindows;
     }
-    timer::gPreloopTimer.ended("Building Nr(s,z) of type " + type);
-    return nrField;
+    
+    // combine window fields from all input types
+    std::vector<LocalizedNr> NrWindows;
+    for (auto &field: mLocalizedNrFields) {
+        NrWindows.push_back(field->getWindowsAtPoint(sz));
+    }
+    combineNrWindows(NrWindows, mDistTol / sz(0), true);
+    
+    // limit by inplane resolution
+    double maxNrUpscaled = -1;
+    if (mBoundByInplane) {
+        maxNrUpscaled = 2 * numerical::dPi * sz(0) / mAveGLLSpacing;
+        if (sz(0) < mDistTol) maxNrUpscaled = 5;
+        for (int i = 0; i < NrWindows[0].M(); i++) {
+            if (NrWindows[0].getNrUpscaled(i) > maxNrUpscaled) {
+                NrWindows[0].setNrUpscaled(i, maxNrUpscaled);
+            }
+        }
+    }
+    
+    // handle windows with less than min nr
+    // compare 3 options and choose the one with least total nr increase:
+    // 1. increase window nr to min nr (only if possible based on inplane resolution)
+    // 2. merge with previous window and take max nr
+    // 3. merge with next window and take max nr
+    //
+    // this method is a brute-force loop through all option trees
+    // it could potentially lead to memory overflow 
+    // but such a situation should not occur given practical limitations of
+    // the window functions
+    removeSmallNrWindows(NrWindows, maxNrUpscaled);
+    return NrWindows[0].mPhiNrWin;
+}
+
+std::pair<eigen::DMatX2, eigen::IMatX4> NrField::makeElementalNrWindows(
+    const std::vector<std::vector<std::pair<double, double>>> NodalNr, const double s) const {
+      
+    std::vector<LocalizedNr> ElementalNr;
+    bool local_fields = false;
+    for (int inode = 0; inode < 4; inode++) {
+        LocalizedNr ews(NodalNr[inode]);
+        ElementalNr.push_back(ews);
+        if (ews.M() > 1) local_fields = true;
+    }
+    
+    if (!local_fields) {
+        std::pair<eigen::DMatX2, eigen::IMatX4> elementalNrWindows(eigen::DMatX2::Zero(1, 2), eigen::IMatX4::Zero(1, 4));
+        elementalNrWindows.first(0, 0) = 0.;
+        elementalNrWindows.first(0, 1) = 0.;
+        for (int i = 0; i < 4; i++) {
+            elementalNrWindows.second(0, i) = (int)round(ElementalNr[i].mPhiNrWin[0].second);
+        }
+        return elementalNrWindows;
+    }
+
+    double maxNrUpscaled = -1;
+    if (mBoundByInplane) {
+        maxNrUpscaled = 2 * numerical::dPi * s / mAveGLLSpacing;
+    }
+    double angle_tol = mDistTol / s;
+    
+    combineNrWindows(ElementalNr, angle_tol, false);
+    removeSmallNrWindows(ElementalNr, maxNrUpscaled);
+    
+    // calculate overlap
+    std::vector<double> half_ol(ElementalNr[0].M());
+    if (ElementalNr[0].M() <= 1) {
+        // nothing
+    } else if (mOverlapPhi > 0) {
+        std::fill(half_ol.begin(), half_ol.end(), mOverlapPhi / 2);
+    } else {
+        for (int m = 0; m < ElementalNr[0].M(); m++) {
+           int m_next = (m + 1) % ElementalNr[0].M();
+           
+           double min_nr_upscaled = std::numeric_limits<double>::max();
+           for (int inode = 0; inode < 4; inode++) {
+                min_nr_upscaled = std::min(min_nr_upscaled, ElementalNr[inode].getNrUpscaled(m));
+                min_nr_upscaled = std::min(min_nr_upscaled, ElementalNr[inode].getNrUpscaled(m_next));
+            }
+            half_ol[m] = 2 * numerical::dPi / min_nr_upscaled * mOverlapMinNr / 2;
+        }
+    }
+    
+    // window size is consistent between nodes now -> add overlap and store as matrix
+    std::pair<eigen::DMatX2, eigen::IMatX4> elementalNrWindows(eigen::DMatX2::Zero(ElementalNr[0].M(), 2), eigen::IMatX4::Zero(ElementalNr[0].M(), 4));
+    for (int m = 0; m < ElementalNr[0].M(); m++) {
+        double phi1, phi2, fracSizeIncrease;
+        
+        if (ElementalNr[0].M() <= 1) {
+            // no overlap for single window
+            phi1 = 0;
+            phi2 = 0;
+            
+            fracSizeIncrease = 1;
+        } else {
+            int m_next = (m + 1) % ElementalNr[0].M();
+              
+            phi1 = window_tools::setBounds2Pi(ElementalNr[0].mPhiNrWin[m].first - half_ol[m]);
+            phi2 = window_tools::setBounds2Pi(ElementalNr[0].mPhiNrWin[m_next].first + half_ol[m]);
+
+            fracSizeIncrease = (1. + 2 * half_ol[m] / ElementalNr[0].getSize(m));
+        }
+        
+        eigen::IRow4 nr;
+        for (int inode = 0; inode < 4; inode++) {
+            ElementalNr[inode].setNrUpscaled(m, ElementalNr[inode].getNrUpscaled(m) * fracSizeIncrease);
+            nr(inode) = (int)round(ElementalNr[inode].mPhiNrWin[m].second);
+        }
+        
+        elementalNrWindows.first(m, 0) = phi1;
+        elementalNrWindows.first(m, 1) = phi2;
+        elementalNrWindows.second.row(m) = nr;
+    }
+    
+    return elementalNrWindows;
+}
+    
+void NrField::finalizeNrWindows(
+    std::vector<std::unique_ptr<std::tuple<eigen::DRow4, eigen::IRowN, int, bool>>> &quadWins,
+    eigen::DRow2 phi_undivided, eigen::IRowN nr_undivided,
+    double phi2_prev, double phi1_next, double s) const {
+     
+    bool subdivision = false;
+    int nwin_prev = quadWins.size();
+    
+    double angle_tol = mDistTol / s;
+    double win_size = phi_undivided(1) - phi_undivided(0);
+    if (win_size <= angle_tol) win_size += 2 * numerical::dPi;
+    
+    // attempt to divide into regular windows
+    if (mWindowSize > 0) {
+        // calculate overlap
+        int min_nr = nr_undivided.minCoeff();
+        
+        double overlap;
+        if (mOverlapPhi > 0) {
+            overlap = mOverlapPhi;
+        } else {
+            overlap = win_size / min_nr * mOverlapMinNr;
+        }
+        double regWinPhi = overlap * mWindowSize; // inner size
+        
+        // recalculate exact window size for regular intervals
+        double win_size_corrected = window_tools::setBounds2Pi(phi2_prev - phi1_next);
+        if (win_size_corrected < angle_tol) win_size_corrected += 2 * numerical::dPi;
+        win_size_corrected += overlap;
+        int nwin = (int)floor((win_size_corrected + angle_tol) / (regWinPhi));
+        regWinPhi = win_size / nwin;
+
+        if (nwin > 1 && min_nr / nwin >= mWindowMinNr) {
+            subdivision = true;
+            
+            quadWins.resize(quadWins.size() + nwin);
+            
+            eigen::IRowN nr_sub;
+            if (mAlign) {
+                eigen::IRowN nr_ol = (nr_undivided.array().cast<double>() * overlap / win_size).array().round().cast<int>();
+                nr_sub = (nr_ol.array() * (mWindowSize + 1)) + 1;
+            } else {
+                nr_sub = (nr_undivided.array().cast<double>() * (regWinPhi + overlap) / win_size).array().round().cast<int>() + 1;
+                if (mUseLuckyNumbers) {
+                    nr_sub = nr_sub.unaryExpr([](int nr) {return nextLuckyNumber(nr);});
+                }
+            }
+            
+            if (win_size >= 2 * numerical::dPi - angle_tol) { // single window -> add overlap
+                phi_undivided(0) = window_tools::setBounds2Pi(phi_undivided(0) - overlap / 2);
+                phi_undivided(1) = window_tools::setBounds2Pi(phi_undivided(1) + overlap / 2);
+                phi2_prev = phi_undivided(1);
+                phi1_next = phi_undivided(0);  
+            }
+            
+            
+            
+            // to easily calculate regular window positions we 
+            // ignore potentially different overlaps from other windows
+            double phi_start = window_tools::setBounds2Pi(phi2_prev - overlap);
+            for (int m = 0; m < nwin; m++) {
+                eigen::DRow4 phi;
+                phi << window_tools::setBounds2Pi(phi_start + m * regWinPhi),
+                       window_tools::setBounds2Pi(phi_start + m * regWinPhi + overlap),
+                       window_tools::setBounds2Pi(phi_start + (m + 1) * regWinPhi),
+                       window_tools::setBounds2Pi(phi_start + (m + 1) * regWinPhi + overlap);
+                std::tuple<eigen::DRow4, eigen::IRowN, int, bool> win_tuple = std::make_tuple(phi, nr_sub, -1, true);
+                quadWins[nwin_prev + m] = std::make_unique<std::tuple<eigen::DRow4, eigen::IRowN, int, bool>>();
+                *quadWins[nwin_prev + m] = std::make_tuple(phi, nr_sub, -1, true);
+            }
+            
+            // re-introduce potentially different overlaps from start and end
+            if (win_size < 2 * numerical::dPi - angle_tol) { // not needed for single window
+                double fracSizeDiff;
+                // first window
+                (std::get<0>(*quadWins[nwin_prev]))(0) = phi_undivided(0);
+                fracSizeDiff = (regWinPhi + phi2_prev - phi_undivided(0)) / (regWinPhi + overlap);
+                std::get<1>(*quadWins[nwin_prev]) = ((std::get<1>(*quadWins[nwin_prev])).array().cast<double>() * fracSizeDiff).array().round().cast<int>();
+                // last window
+                (std::get<0>(*quadWins[nwin_prev + nwin - 1]))(3) = phi_undivided(1);
+                fracSizeDiff = (regWinPhi + phi_undivided(1) - phi1_next) / (regWinPhi + overlap);
+                std::get<1>(*quadWins[nwin_prev + nwin - 1]) = ((std::get<1>(*quadWins[nwin_prev + nwin - 1])).array().cast<double>() * fracSizeDiff).array().round().cast<int>();
+                // apply lucky numbers
+                if (mUseLuckyNumbers) {
+                    std::get<1>(*quadWins[nwin_prev]) = (std::get<1>(*quadWins[nwin_prev])).unaryExpr([](int nr) {return nextLuckyNumber(nr);});
+                    std::get<1>(*quadWins[nwin_prev + nwin - 1]) = (std::get<1>(*quadWins[nwin_prev + nwin - 1])).unaryExpr([](int nr) {return nextLuckyNumber(nr);});
+                }
+            }
+        }
+    }
+    
+    if (!subdivision) {
+        // no subdivision
+        if (mUseLuckyNumbers) {
+            nr_undivided = nr_undivided.unaryExpr([](int nr) {return nextLuckyNumber(nr);});
+        }
+
+        eigen::DRow4 phi ;
+        phi << phi_undivided(0), phi2_prev, phi1_next, phi_undivided(1);
+        bool hasOverlap = (win_size < 2 * numerical::dPi - angle_tol); // no overlap for single window 
+        
+        quadWins.push_back(std::make_unique<std::tuple<eigen::DRow4, eigen::IRowN, int, bool>>());
+        *quadWins[nwin_prev] = std::make_tuple(phi, nr_undivided, -1, hasOverlap);
+    }
+}
+
+void NrField::combineNrWindows(std::vector<LocalizedNr> &wfv, const double angle_tol, const bool max_only) {
+    if (wfv.size() <= 1) return;
+    
+    // calculate combined size for preallocation
+    int nr_raw = NrWindowVectorSum(wfv);
+    
+    // gather all phi
+    std::vector<double> phi_combined;
+    for (auto &it: wfv) {
+        std::vector<double> phi(it.M());
+        for (int m = 0; m < it.M(); m++) phi[m] = it.mPhiNrWin[m].second;
+        phi_combined.insert(phi_combined.end(), std::begin(phi), std::end(phi));
+    }
+    
+    // remove duplicated based on dist_tol
+    std::sort(phi_combined.begin(), phi_combined.end());
+    auto ip = std::unique(phi_combined.begin(), phi_combined.end(),
+        [angle_tol] (const double& phi1, const double& phi2) {
+            return phi1 >= phi2 - angle_tol;
+        }
+    );
+    phi_combined.resize(distance(phi_combined.begin(), ip));
+    
+    // calculate nr of each input window field in the new windows
+    eigen::DMatXX new_nr_local = eigen::DMatXX::Zero(phi_combined.size(), wfv.size());
+    for (int i = 0; i < phi_combined.size(); i++) {
+        int i_next = (i + 1) % phi_combined.size();
+        for (int j = 0; j < wfv.size(); j++) {
+            new_nr_local(i,j) = wfv[j].getScaledMaxNrInRange(phi_combined[i], phi_combined[i_next], angle_tol);
+        }
+    }
+    
+    // make new window field(s)
+    std::vector<LocalizedNr> combinedWindowFields;
+    
+    if (max_only) { // for nodal (create a single window field)
+        std::vector<std::pair<double, double>> new_PhiNr(phi_combined.size());
+        for (int i = 0; i < phi_combined.size(); i++) {
+            new_PhiNr[i] = std::make_pair(phi_combined[i], new_nr_local.row(i).maxCoeff());
+        }
+        LocalizedNr MaxNrCombinedWindowField(new_PhiNr);
+        combinedWindowFields.push_back(MaxNrCombinedWindowField);
+    } else { // for elemental (nr can differ between nodes but windows must be the same)
+        for (int j = 0; j != wfv.size(); j++) {
+            std::vector<std::pair<double, double>> new_PhiNr(phi_combined.size());
+            for (int i = 0; i < phi_combined.size(); i++) {
+                new_PhiNr[i] = std::make_pair(phi_combined[i], new_nr_local(i,j));
+            }
+            LocalizedNr CombinedWindowField(new_PhiNr);
+            combinedWindowFields.push_back(CombinedWindowField);
+        }
+    }
+    
+    wfv = combinedWindowFields;
+}
+
+void NrField::removeSmallNrWindows(std::vector<LocalizedNr> &wfv, const double maxNrUpscaled) const {
+    if (wfv[0].M() < 2) {
+        for (auto &wf: wfv) {
+            wf.mPhiNrWin[0].second = std::max(wf.mPhiNrWin[0].second, 1.);
+        }
+        return;
+    }
+    
+    int i_small, j_node;
+    for (int j = 0; j < wfv.size(); j++) {
+        i_small = wfv[j].nextSmallWindow(mWindowMinNr);
+        if (i_small >= 0) {
+            j_node = j;
+            break;
+        }
+    }
+    if (i_small < 0) return;
+    
+    std::vector<std::vector<LocalizedNr>> options;
+    options.push_back(wfv);
+
+    int io = 0;
+    while (i_small >= 0) {
+      
+        wfv = options[io];
+        options.erase(options.begin() + io);
+        std::vector<std::vector<LocalizedNr>> new_options = getOptions(wfv, j_node, i_small, maxNrUpscaled);
+        options.insert(options.end(), new_options.begin(), new_options.end());
+        
+        bool found = false;
+        for (int io_ = 0; io_ < options.size(); io_++) {
+            for (int j = 0; j < wfv.size(); j++) {
+                i_small = options[io_][j].nextSmallWindow(mWindowMinNr);
+                if (i_small >= 0) {
+                    io = io_;
+                    j_node = j;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+    }
+    
+    std::vector<LocalizedNr> best_option = *std::min_element(options.begin(), options.end(),
+        [] (const std::vector<LocalizedNr>& o1, const std::vector<LocalizedNr>& o2) {
+            return (NrWindowVectorSum(o1) < NrWindowVectorSum(o2));
+        }
+    );
+    
+    wfv = best_option;
+}
+
+std::vector<std::vector<LocalizedNr>> NrField::getOptions(const std::vector<LocalizedNr> wfv, int j_field, int i_small, const double maxNrUpscaled) const {
+        std::vector<std::vector<LocalizedNr>> options;
+        
+        // option 1 = increase local nr to required minimum nr
+        std::vector<LocalizedNr> option = wfv;
+        option[j_field].mPhiNrWin[i_small].second = (double)mWindowMinNr;
+        if (maxNrUpscaled < 0 || option[j_field].getNrUpscaled(i_small) < maxNrUpscaled) options.push_back(option);
+        
+        // option 2 = merge with previous window
+        for (int j = 0; j < wfv.size(); j++) {
+            option[j] = wfv[j].merged(i_small);
+        }
+        options.push_back(option);
+        
+        // option 3 = merge with next window
+        if (wfv[0].M() > 2) {
+            for (int j = 0; j < wfv.size(); j++) {
+                option[j] = wfv[j].merged(i_small + 1);
+            }
+            options.push_back(option);
+        }
+        
+        return options;
 }
 
 // is lucky number
@@ -91,6 +424,12 @@ bool NrField::isLuckyNumber(int n) {
     
     // true
     return true;
+}
+
+void NrField::nextLuckyNumber(eigen::IRowN &PointNr) {
+    PointNr = PointNr.unaryExpr([](int nr) {
+        return nextLuckyNumber(nr);
+    });
 }
 
 // next lucky number

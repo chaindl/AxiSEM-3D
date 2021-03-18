@@ -35,15 +35,16 @@ public:
     void checkCompatibility(int nr, bool solid) const;
     
     // compute accel in-place for fluid
-    void computeAccel(eigen::CColX &stiff1) const {
+    void computeAccel(eigen::RColX &stiff1) const {
         throw std::runtime_error("MassOceanLoad3D::computeAccel || "
                                  "Incompatible types: "
                                  "ocean load on fluid point.");
     }
     
     // compute accel in-place for solid
-    void computeAccel(eigen::CMatX3 &stiff3) const;
+    void computeAccel(eigen::RMatX3 &stiff3) const;
     
+    bool is3D() const {return true;};
 private:
     // im = 1 / m
     const eigen::RColX mIM;
@@ -56,10 +57,7 @@ private:
     ////////////////////////////////////////
     
     // workspace
-    // F = FFT(stiff)
     inline static eigen::RMatX3 sF = eigen::RMatX3(0, 3);
-    // a = im F - F.k k
-    inline static eigen::RMatX3 sA = eigen::RMatX3(0, 3);
 };
 
 #endif /* MassOceanLoad3D_hpp */

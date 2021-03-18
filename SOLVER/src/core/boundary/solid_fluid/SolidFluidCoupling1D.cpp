@@ -9,19 +9,19 @@
 //  solid-fluid boundary condition in 1D
 
 #include "SolidFluidCoupling1D.hpp"
-#include "SolidPoint.hpp"
+#include "SolidPointWindow.hpp"
 
 // constructor
 SolidFluidCoupling1D::
-SolidFluidCoupling1D(const std::shared_ptr<SolidPoint> &sp,
-                     const std::shared_ptr<FluidPoint> &fp,
+SolidFluidCoupling1D(const std::shared_ptr<SolidPointWindow> &spw,
+                     const std::shared_ptr<FluidPointWindow> &fpw,
                      double ns_unassmb, double nz_unassmb,
                      double ns_assmb, double nz_assmb,
                      double massFluid):
-SolidFluidCoupling(sp, fp),
+SolidFluidCoupling(spw, fpw),
 mNormalS_UnassembledMPI(ns_unassmb),
 mNormalZ_UnassembledMPI(nz_unassmb),
 mNormalS_AssembledMPI_InvMassFluid(ns_assmb / massFluid),
 mNormalZ_AssembledMPI_InvMassFluid(nz_assmb / massFluid) {
-    checkCompatibility(mSolidPoint->getNr());
+    checkCompatibility(mSolidPointWindow->getNr());
 }

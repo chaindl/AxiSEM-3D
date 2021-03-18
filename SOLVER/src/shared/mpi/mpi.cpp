@@ -279,6 +279,81 @@ namespace mpi {
         }
     }
     
+    void assembleNodal(std::vector<std::vector<std::pair<double, double>>> &nrField) {
+        for (auto &nodalNr: nrField) {
+            std::vector<double> phis, nrs;
+            phis.reserve(nodalNr.size());
+            nrs.reserve(nodalNr.size());
+            for (auto &win: nodalNr) {
+                phis.push_back(win.first);
+                nrs.push_back(win.second);
+            }
+    
+            std::vector<std::vector<double>> vecPhis, vecNrs;
+            gather(phis, vecPhis, MPI_ALL);
+            gather(nrs, vecNrs, MPI_ALL);
+    
+            std::vector<std::pair<double, double>> nodalAssembled;
+            for (int iproc = 0; iproc < vecPhis.size(); iproc++) {
+                for (int m = 0; m < vecPhis[iproc].size(); m++) {
+                    nodalAssembled.push_back(std::make_pair(vecPhis[iproc][m], vecNrs[iproc][m]));
+                }
+            }
+            nodalNr = nodalAssembled;
+        }
+    }
+    
+    // vector<vector<vector<pair<double, double>>>> to vector<vector<pair<double, double>>>
+    void scatterNr(const std::vector<std::vector<std::vector<std::pair<double, double>>>> &vecNr,
+                      std::vector<std::vector<std::pair<double, double>>> &nr, int src) {
+        // vec<vec<pair>> to vector
+        std::vector<std::vector<double>> vecVec;
+        std::vector<std::vector<int>> vecWins;
+        std::vector<int> vecNodes;
+        if (rank() == src) {
+            vecVec.resize(nproc());
+            vecNodes.resize(nproc());
+            vecWins.resize(nproc());
+            for (int iproc = 0; iproc < nproc(); iproc++) {
+                vecNodes[iproc] = vecNr[iproc].size();
+                for (int inode = 0; inode < vecNodes[iproc]; inode ++) {
+                    vecWins[iproc].push_back(vecNr[iproc][inode].size());
+                    std::vector<double> phis, nrs;
+                    phis.reserve(vecWins[iproc][inode]);
+                    nrs.reserve(vecWins[iproc][inode]);
+                    for (auto &win: vecNr[iproc][inode]) {
+                        phis.push_back(win.first);
+                        nrs.push_back(win.second);
+                    }
+                    vecVec[iproc].insert(vecVec[iproc].end(), phis.begin(), phis.end());
+                    vecVec[iproc].insert(vecVec[iproc].end(), nrs.begin(), nrs.end());
+                }
+            }
+        }
+
+        // scatter vector
+        std::vector<double> vec;
+        std::vector<int> wins;
+        int nodes;
+        scatter(vecVec, vec, src);
+        scatter(vecWins, wins, src);
+        scatter(vecNodes, nodes, src);
+    
+        // vector to vec<vec<pair>>
+        nr.resize(nodes);
+        int index = 0;
+        for (int inode = 0; inode < nodes; inode ++) {
+            nr[inode].resize(wins[inode]);
+    
+            for (int m = 0; m < wins[inode]; m++) {
+                nr[inode][m] = std::make_pair(vec[index], vec[index + wins[inode]]);
+                index++;
+            }
+    
+            index += wins[inode];
+        }
+    }
+    
     ////////////////////////////// external //////////////////////////////
     // verbose
     std::string verbose() {

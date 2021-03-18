@@ -15,6 +15,8 @@
 #include "eigen_tools.hpp"
 #include "channel.hpp"
 
+#include "Element.hpp"
+
 // short alias for column block operation
 #define bblk(dim) block(0, dim, bufferLine, 1)
 
@@ -36,11 +38,13 @@ public:
         return mKey;
     }
     
-protected:
     // set element: inplane weights and nu
-    void setElement(const eigen::DRowN &weights, int nu_1);
+    void setElement(const std::shared_ptr<Element> &element, 
+                    const eigen::DRowN &weights,
+                    const std::vector<std::pair<int, double>> &windowPhis);
     
-    
+protected:
+  
     ///////////////////////// template functions /////////////////////////
     // record: inplane and Fourier interpolation
     template <int D,
@@ -50,7 +54,7 @@ protected:
     Eigen::Matrix<numerical::ComplexR, Eigen::Dynamic, D>,
     typename RRowD =
     Eigen::Matrix<numerical::Real, 1, D>>
-    void interpolate(const CMatXND &xnd, CMatXD &xd, RRowD &d, int nu_1) const {
+    void interpolate(const CMatXND &xnd, CMatXD &xd, RRowD &d, int nu_1, int m) const {
         // inplane interpolation
         for (int idim = 0; idim < D; idim++) {
             // Eigen 3.4 feature
@@ -63,10 +67,10 @@ protected:
         // azimuthal interpolation
 #ifndef _SAVE_MEMORY
         // sum exp
-        eigen_tools::computeFourierAtPhiExp(xd, nu_1, m2ExpIAlphaPhi, d);
+        eigen_tools::computeFourierAtPhiExp(xd, nu_1, m2ExpIAlphaPhi[m], d);
 #else
         // compute exp on-the-fly
-        eigen_tools::computeTwoExpIAlphaPhi(nu_1, mPhi, s2ExpIAlphaPhi);
+        eigen_tools::computeTwoExpIAlphaPhi(nu_1, mWindowPhis[m].second, s2ExpIAlphaPhi);
         // sum exp
         eigen_tools::computeFourierAtPhiExp(xd, nu_1, s2ExpIAlphaPhi, d);
 #endif
@@ -121,7 +125,7 @@ protected:
     template <int D,
     typename RMatXD_RM =
     Eigen::Matrix<numerical::Real, Eigen::Dynamic, D, Eigen::RowMajor>>
-    void computeFeedChannel(const RMatXD_RM &field, int fieldIndex,
+    void computeFeedChannel(RMatXD_RM &field, int fieldIndex,
                             int bufferLine, int channelIndex, int stationIndex,
                             eigen::RTensor3 &bufferFields) const {
         if (fieldIndex >= 0) {
@@ -174,6 +178,8 @@ protected:
         eigen::IArray3 len = {1, 1, bufferLine};
         bufferFields.slice(loc, len).reshape(eigen::IArray1{bufferLine}) =
         Eigen::TensorMap<eigen::RTensor1>(sColBuffer.data(), bufferLine);
+        
+        field.setZero();
     }
     
     
@@ -190,13 +196,10 @@ private:
     eigen::RRowX mNonZeroWeights = eigen::RRowX(0);
     std::vector<int> mNonZeroIndices;
     
-    // azimuth for Fourier interpolation
-    const double mPhi;
-    
     // 2 * exp(i * alpha * phi) for Fourier interpolation
 #ifndef _SAVE_MEMORY
     // precompute
-    eigen::CColX m2ExpIAlphaPhi = eigen::CColX(0);
+    std::vector<eigen::CColX> m2ExpIAlphaPhi;
 #else
     // on-the-fly
     inline static eigen::CColX s2ExpIAlphaPhi = eigen::CColX(0);
@@ -207,6 +210,12 @@ private:
     const double mTheta;
     const double mBAzPlus90;
     
+protected:
+    std::shared_ptr<Element> mElement = nullptr;
+    
+    // azimuth for Fourier interpolation
+    const double mPhi;
+    std::vector<std::pair<int,double>> mWindowPhis;
     
     ////////////////////////////////////////
     //////////////// static ////////////////

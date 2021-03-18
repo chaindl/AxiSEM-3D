@@ -9,15 +9,15 @@
 //  moment source on solid element
 
 #include "SolidMoment.hpp"
-#include "SolidElement.hpp"
+#include "Element.hpp"
 
 // constructor
 SolidMoment::SolidMoment(std::unique_ptr<STF> &stf,
-                         const std::shared_ptr<SolidElement> &element,
-                         const eigen::CMatXN6 &pattern):
-SolidSource(stf, element), mPattern(pattern) {
+                         const std::shared_ptr<const Element> &element,
+                         int m, const eigen::CMatXN6 &pattern):
+SolidSource(stf, element, m), mPattern(pattern) {
     // prepare
-    element->prepareMomentSource();
+    mElement->prepareMomentSource(mM);
     
     // workspace
     if (sPattern.rows() < mPattern.rows()) {
@@ -29,5 +29,5 @@ SolidSource(stf, element), mPattern(pattern) {
 void SolidMoment::apply(double time) const {
     int nu_1 = (int)mPattern.rows();
     sPattern.topRows(nu_1) = mPattern * mSTF->getValue(time);
-    mElement->addMomentSource(sPattern, nu_1);
+    mElement->addMomentSource(mM, sPattern, nu_1);
 }

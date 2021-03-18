@@ -18,8 +18,8 @@ class SolidMoment: public SolidSource {
 public:
     // constructor
     SolidMoment(std::unique_ptr<STF> &stf,
-                const std::shared_ptr<SolidElement> &element,
-                const eigen::CMatXN6 &pattern);
+                const std::shared_ptr<const Element> &element,
+                const int m, const eigen::CMatXN6 &pattern);
     
     // apply source at a time step
     void apply(double time) const;
@@ -27,7 +27,6 @@ public:
 private:
     // source pattern
     const eigen::CMatXN6 mPattern;
-    
     
     ////////////////////////////////////////
     //////////////// static ////////////////

@@ -16,14 +16,16 @@
 void Geometric3D::applyTo(std::vector<Quad> &quads) const {
     if (!isSuperOnly()) {
         for (Quad &quad: quads) {
-            // cardinal coordinates
-            const eigen::DMatX3 &spz = computeElemSPZ(quad);
-            // compute values
-            eigen::DColX und;
-            bool elemInScope = getUndulation(spz, quad.getNodalSZ(), und);
-            // set values to quad
-            if (elemInScope) {
-                setUndulationToQuad(und, quad);
+            for (int m = 0; m < quad.getM(); m++) {
+                // cardinal coordinates
+                const eigen::DMatX3 &spz = computeElemSPZ(quad, m);
+                // compute values
+                eigen::DColX und;
+                bool elemInScope = getUndulation(spz, quad.getNodalSZ(), und);
+                // set values to quad
+                if (elemInScope) {
+                    setUndulationToQuad(und, quad, m);
+                }
             }
         }
     } else {
@@ -34,11 +36,19 @@ void Geometric3D::applyTo(std::vector<Quad> &quads) const {
             std::vector<eigen::DMat24> szAll;
             if (irank == mpi::rank()) {
                 // gather coords
-                spzAll.reserve(quads.size());
-                szAll.reserve(quads.size());
+                int nwins = 0;
                 for (Quad &quad: quads) {
-                    spzAll.push_back(computeElemSPZ(quad));
-                    szAll.push_back(quad.getNodalSZ());
+                    nwins += quad.getM();
+                }
+                spzAll.reserve(nwins);
+                szAll.reserve(nwins); // not ideal to duplicate sz data, but easiest for comms
+                                      // alternatives: create sendVecVecEigen for spzAll or 
+                                      // build and send global window tags
+                for (Quad &quad: quads) {
+                    for (int m = 0; m < quad.getM(); m++) {
+                        spzAll.push_back(computeElemSPZ(quad, m));
+                        szAll.push_back(quad.getNodalSZ());
+                    }
                 }
                 // send coords to super
                 mpi::sendVecEigen(0, spzAll, 0);
@@ -53,13 +63,13 @@ void Geometric3D::applyTo(std::vector<Quad> &quads) const {
                 mpi::recvVecEigen(irank, spzAll, 0);
                 mpi::recvVecEigen(irank, szAll, 1);
                 // allocate values
-                int nQuad = (int)spzAll.size();
-                undAll.reserve(nQuad);
-                elemInScopeAll.push_back(eigen::IColX::Zero(nQuad));
+                int nWin = (int)spzAll.size();
+                undAll.reserve(nWin);
+                elemInScopeAll.push_back(eigen::IColX::Zero(nWin));
                 // compute values
-                for (int iq = 0; iq < nQuad; iq++) {
+                for (int iw = 0; iw < nWin; iw++) {
                     eigen::DColX und;
-                    elemInScopeAll[0](iq) = getUndulation(spzAll[iq], szAll[iq],
+                    elemInScopeAll[0](iw) = getUndulation(spzAll[iw], szAll[iw],
                                                           und);
                     undAll.push_back(und);
                 }
@@ -74,9 +84,13 @@ void Geometric3D::applyTo(std::vector<Quad> &quads) const {
                 mpi::recvVecEigen(0, undAll, 0);
                 mpi::recvVecEigen(0, elemInScopeAll, 1);
                 // set values to quads
-                for (int iq = 0; iq < spzAll.size(); iq++) {
-                    if (elemInScopeAll[0](iq)) {
-                        setUndulationToQuad(undAll[iq], quads[iq]);
+                int iw = 0;
+                for (Quad &quad: quads) {
+                    for (int m = 0; m < quad.getM(); m++) {
+                        if (elemInScopeAll[0](iw)) {
+                            setUndulationToQuad(undAll[iw], quads[iw], m);
+                        }
+                        iw++;
                     }
                 }
             }
@@ -89,9 +103,9 @@ void Geometric3D::applyTo(std::vector<Quad> &quads) const {
 
 // set undulation to quad
 void Geometric3D::setUndulationToQuad(const eigen::DColX &undulation,
-                                      Quad &quad) const {
+                                      Quad &quad, const int m) const {
     // flattened to structured
-    const eigen::IRowN &pointNr = quad.getPointNr();
+    const eigen::IRowN &pointNr = quad.getPointNr(m);
     eigen::arN_DColX undArr;
     int row = 0;
     for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
@@ -100,7 +114,7 @@ void Geometric3D::setUndulationToQuad(const eigen::DColX &undulation,
         row += nr;
     }
     // set to Quad
-    quad.getUndulationPtr()->addUndulation(undArr);
+    quad.getUndulationPtr(m)->addUndulation(undArr);
 }
 
 

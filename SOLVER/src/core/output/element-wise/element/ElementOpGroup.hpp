@@ -60,6 +60,10 @@ public:
         mElementOps.push_back(std::move(elementOp));
     }
     
+    void setHasWindows(bool hasWindows) {
+        mHasWindows = hasWindows;
+    }
+    
     // initialize after adding all elements
     void initialize() {
         // channels
@@ -78,15 +82,21 @@ public:
         if (nphis > 0) {
             // find max nu_1
             int maxNu_1 = 0;
+            int maxNPhi_local = 0;
             for (const std::unique_ptr<ElementOpT> &eop: mElementOps) {
                 maxNu_1 = std::max(maxNu_1, eop->getNu_1());
+                maxNPhi_local = std::max(maxNPhi_local, eop->getMaxNPhiLocal());
             }
             // allocate and compute
-            mExpIAlphaPhi = eigen::CMatXX::Zero(maxNu_1, nphis);
-            for (int iphi = 0; iphi < nphis; iphi++) {
-                eigen::CColX temp(maxNu_1);
-                eigen_tools::computeTwoExpIAlphaPhi(maxNu_1, mPhis[iphi], temp);
-                mExpIAlphaPhi.col(iphi) = temp;
+            if (mHasWindows) { // just allocate - computed on the fly for every window
+                mExpIAlphaPhi = eigen::CMatXX::Zero(maxNu_1, maxNPhi_local);
+            } else {
+                mExpIAlphaPhi = eigen::CMatXX::Zero(maxNu_1, nphis);
+                for (int iphi = 0; iphi < nphis; iphi++) {
+                    eigen::CColX temp(maxNu_1);
+                    eigen_tools::computeTwoExpIAlphaPhi(maxNu_1, mPhis[iphi], temp);
+                    mExpIAlphaPhi.col(iphi) = temp;
+                }
             }
         }
         
@@ -193,7 +203,7 @@ public:
         
         // stations
         for (const std::unique_ptr<ElementOpT> &eop: mElementOps) {
-            eop->record(mBufferLine, mChannelOptions, mExpIAlphaPhi);
+            eop->record(mBufferLine, mChannelOptions, mExpIAlphaPhi, mHasWindows);
         }
         
         // increment buffer line
@@ -261,6 +271,7 @@ private:
     std::vector<std::unique_ptr<ElementOpT>> mElementOps;
     
     // Fourier
+    bool mHasWindows;
     eigen::CMatXX mExpIAlphaPhi = eigen::CMatXX(0, 0);
     
     // na

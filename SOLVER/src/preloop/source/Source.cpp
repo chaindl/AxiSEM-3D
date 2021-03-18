@@ -330,7 +330,7 @@ void Source::release(const SE_Model &sem, Domain &domain, double dt,
         bool inFluid = mechanism->inFluid();
         
         // locate in mesh
-        int quadTag = sem.locateInplane(spz({0, 2}).transpose(), inFluid);
+        int quadTag = sem.locateInplane(spz({0, 2}).transpose(), spz(1), inFluid);
         if (quadTag != -1) {
             sourceIndexRank.insert({sindex, mpi::rank()});
             sourceIndexQuad.insert({sindex, quadTag});
@@ -400,10 +400,19 @@ void Source::release(const SE_Model &sem, Domain &domain, double dt,
                 verbose(sindex, *stf, *mechanism)});
         }
         
+        // get windows from phi
+        eigen::DRowX phi_local = quads[quadTag].computeRelativeWindowPhis(std::vector<double>{spz(1)}).row(0);
+        std::vector<std::pair<int, double>> windowPhis;
+        for (int m = 0; m < phi_local.size(); m++) {
+            if (phi_local(m) >= 0) windowPhis.push_back(std::make_pair(m, phi_local(m)));
+        }
+        
         // release
-        mechanism->release(source->computeQzsp(spz, source->mEllipticity),
-                           source->mAxial, inplaneFactor, spz(1),
+        for (auto win: windowPhis) {
+            mechanism->release(source->computeQzsp(spz, source->mEllipticity),
+                           source->mAxial, inplaneFactor, win.first, win.second,
                            quads[quadTag], stf, domain);
+        }
     }
     // minimum t0 over ranks
     minT0 = mpi::min(minT0);

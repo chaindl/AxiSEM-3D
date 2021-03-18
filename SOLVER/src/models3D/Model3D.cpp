@@ -13,9 +13,9 @@
 #include "vicinity.hpp"
 
 // compute spz on element
-eigen::DMatX3 Model3D::computeElemSPZ(const Quad &quad, bool undulated) {
+eigen::DMatX3 Model3D::computeElemSPZ(const Quad &quad, int m, bool undulated) {
     // quad nr
-    const eigen::IRowN &pointNr = quad.getPointNr();
+    const eigen::IRowN &pointNr = quad.getPointNr(m);
     // GLL coordinates
     const eigen::DMat2N &pointSZ = quad.getPointSZ();
     // allocate
@@ -28,8 +28,8 @@ eigen::DMatX3 Model3D::computeElemSPZ(const Quad &quad, bool undulated) {
         spz.block(row, 0, nr, 1).fill(pointSZ(0, ipnt));
         spz.block(row, 2, nr, 1).fill(pointSZ(1, ipnt));
         // linearly varying phi
-        spz.block(row, 1, nr, 1) =
-        eigen::DColX::LinSpaced(nr, 0, 2. * numerical::dPi / nr * (nr - 1));
+        spz.block(row, 1, nr, 1) = quad.computeWindowPhi(m, ipnt, false);
+        
         row += nr;
     }
     
@@ -38,7 +38,7 @@ eigen::DMatX3 Model3D::computeElemSPZ(const Quad &quad, bool undulated) {
         return spz;
     }
     // get undulation from quad
-    eigen::arN_DColX und = quad.getUndulation();
+    eigen::arN_DColX und = quad.getUndulation(m);
     // structured to flattened
     row = 0;
     for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
@@ -66,11 +66,11 @@ eigen::DMatX3 Model3D::computeElemSPZ(const Quad &quad, bool undulated) {
 }
 
 // compute spz on edge
-eigen::DMatX3 Model3D::computeEdgeSPZ(const Quad &quad, int edge) {
+eigen::DMatX3 Model3D::computeEdgeSPZ(const Quad &quad, int edge, int m) {
     // edge points
     const std::vector<int> &ipnts = vicinity::constants::gEdgeIPnt[edge];
     // quad nr
-    const eigen::IRowN &pointNr = quad.getPointNr();
+    const eigen::IRowN &pointNr = quad.getPointNr(m);
     // GLL coordinates
     const eigen::DMat2N &pointSZ = quad.getPointSZ();
     // allocate
@@ -83,9 +83,7 @@ eigen::DMatX3 Model3D::computeEdgeSPZ(const Quad &quad, int edge) {
         spz.block(row, 0, nr, 1).fill(pointSZ(0, ipnt));
         spz.block(row, 2, nr, 1).fill(pointSZ(1, ipnt));
         // linearly varying phi
-        spz.block(row, 1, nr, 1) =
-        eigen::DColX::LinSpaced(nr, 0, 2. * numerical::dPi / nr * (nr - 1));
-        row += nr;
+        spz.block(row, 1, nr, 1) = quad.computeWindowPhi(m, ipnt, false);
     }
     return spz;
 }

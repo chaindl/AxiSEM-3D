@@ -52,8 +52,13 @@ namespace eigen {
     typedef std::array<eigen::DMatX3, nPED> arP_DMatX3;
     
     ///////// GLL structured /////////
+    typedef Eigen::Matrix<double, 2, nPED> DMat2P;
     typedef Eigen::Matrix<double, nPED, 1> DColP;
     typedef Eigen::Matrix<double, nPED, nPED, Eigen::RowMajor> DMatPP_RM;
+    
+    ///////// Nr Windows /////////
+    typedef Eigen::Matrix<double, Dynamic, 2> DMatX2;
+    typedef Eigen::Matrix<int, Dynamic, 4> IMatX4;
 }
 
 

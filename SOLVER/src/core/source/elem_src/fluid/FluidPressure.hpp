@@ -18,8 +18,8 @@ class FluidPressure: public FluidSource {
 public:
     // constructor
     FluidPressure(std::unique_ptr<STF> &stf,
-                  const std::shared_ptr<FluidElement> &element,
-                  const eigen::CMatXN &pattern);
+                  const std::shared_ptr<const Element> &element,
+                  int m, const eigen::CMatXN &pattern);
     
     // apply source at a time step
     void apply(double time) const;

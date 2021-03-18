@@ -70,7 +70,7 @@ void LocalMesh::decomposeExodusMesh(const ExodusMesh &exodusMesh,
     timer::gPreloopTimer.message
     (eigen_tools::memoryInfo(elemRank, "element mpi-rank (super-only)"));
 }
-
+#include<iostream>
 // build local skeleton
 void LocalMesh::buildLocalSkeleton(const ExodusMesh &exodusMesh,
                                    const eigen::IColX &elemRank) {
@@ -87,7 +87,7 @@ void LocalMesh::buildLocalSkeleton(const ExodusMesh &exodusMesh,
     std::vector<eigen::DMatX2_RM> vmCrds;
     std::vector<eigen::IColX> vmGeom;
     std::vector<eigen::IColX> vmIsFl;
-    std::vector<eigen::IColX> vmNdNr;
+    std::vector<std::vector<std::vector<std::pair<double, double>>>> vmNdNr;
     if (mpi::root()) {
         // reserve
         vmL2GE.reserve(mpi::nproc());
@@ -132,8 +132,11 @@ void LocalMesh::buildLocalSkeleton(const ExodusMesh &exodusMesh,
             
             // nodal fields simply sliced by nL2G
             vmCrds.push_back(exodusMesh.getNodalCoords()(nL2G, Eigen::all));
-            vmNdNr.push_back(exodusMesh.getNrAtNodes()(nL2G));
-            
+            std::vector<std::vector<std::pair<double, double>>> localNr(nL2G.size());
+            for (int inode = 0; inode < nL2G.size(); inode++) {
+                localNr[inode] = exodusMesh.getNrAtNode(nL2G[inode]);
+            }
+            vmNdNr.push_back(localNr);
             // sliced connectivity with local nodes
             // form an inverse map from global to local for fast search
             std::map<int, int> nG2L;
@@ -159,7 +162,7 @@ void LocalMesh::buildLocalSkeleton(const ExodusMesh &exodusMesh,
     mpi::scatterEigen(vmCrds, mNodalCoords, 0);
     mpi::scatterEigen(vmGeom, mGeometryType, 0);
     mpi::scatterEigen(vmIsFl, mIsElementFluid, 0);
-    mpi::scatterEigen(vmNdNr, mNodalNr, 0);
+    mpi::scatterNr(vmNdNr, mNodalNr, 0);
     timer::gPreloopTimer.ended("Scattering local skeleton in mpi-groups");
 }
 

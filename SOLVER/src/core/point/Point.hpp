@@ -1,56 +1,83 @@
 //
-//  Point.hpp
+//  FluidPoint.cpp
 //  AxiSEM3D
 //
-//  Created by Kuangdai Leng on 1/24/19.
+//  Created by Kuangdai Leng on 1/31/19.
 //  Copyright © 2019 Kuangdai Leng. All rights reserved.
 //
 
-//  GLL point
-
+//  fluid GLL point
 #ifndef Point_hpp
 #define Point_hpp
 
-#include "eigen_point.hpp"
-#include "Mass.hpp"
-#include "bstring.hpp"
+#include "point_time.hpp"
+#include "PointWindow.hpp"
+#include "WindowSum.hpp"
+#include "vector_tools.hpp"
+#include <memory>
 
 class Point {
 public:
     // constructor
-    Point(int nr, const eigen::DRow2 &crds, int meshTag,
-          std::unique_ptr<const Mass> &mass):
-    mNr(nr), mNu_1(mNr / 2 + 1), mCoords(crds),
-    mMeshTag(meshTag), mMass(mass.release()) {
+    Point(int meshTag, eigen::DRow2 crds):
+    mMeshTag(meshTag), mCoords(crds) {
         // nothing
-    }
+    };
     
     // destructor
     virtual ~Point() = default;
+
+    void addWindow(std::shared_ptr<PointWindow> pw) {
+        mWindows.push_back(pw);
+    };
     
-    // type info
-    std::string typeInfo() const {
-        return bstring::typeName(*this) + "$" + bstring::typeName(*mMass);
-    }
+    void addWindowSum(std::shared_ptr<WindowSum> pws) {
+        mWindowSums.push_back(pws);
+        pws->setInFourier();
+    };
     
     // cost signature
     std::string costSignature() const {
         std::stringstream ss;
-        ss << typeInfo() << "$" << mNr;
+        ss << "PointWins:";
+        for (int m = 0; m < mWindows.size(); m++) {
+            ss << mWindows[m]->costSignature();
+            if (m < mWindows.size() - 1) ss << "$";
+        }
         return ss.str();
     }
     
-    
-    /////////////////////////// properties ///////////////////////////
-    // nr
-    int getNr() const {
-        return mNr;
-    }
-    
-    // nu
-    int getNu_1() const {
-        return mNu_1;
-    }
+    /////////////////////////// time loop ///////////////////////////
+    void combineWindows() {
+        for (auto win: mWindows) {
+            win->transformToPhysical();
+        }
+        for (auto ws: mWindowSums) {
+            ws->overlapAndAddStiff();
+        }
+    };
+
+    void separateWindows() {
+        for (auto ws: mWindowSums) {
+            ws->scatterStiffToWindows();
+        }
+        
+    };
+
+    // stiff to accel
+    void computeStiffToAccel() {
+        for (auto win: mWindows) {
+            win->computeStiffToAccel();
+            win->transformToFourier();
+            win->applyPressureSource();
+        }
+    };
+
+    void countInfo(std::map<std::string, int> &typeCountPointWindow) {
+        for (auto win: mWindows) {
+            vector_tools::aggregate(typeCountPointWindow, win->typeInfo(), 1);
+        }
+    };
     
     // location
     const eigen::DRow2 &getCoords() const {
@@ -62,6 +89,28 @@ public:
         return mMeshTag;
     }
     
+    void randomDispl() {
+        for (auto win: mWindows) {
+            win->randomDispl();
+        }
+    };
+    void randomStiff() {
+        for (auto win: mWindows) {
+            win->randomStiff();
+        }
+    };
+    void resetToZero() {
+        for (auto win: mWindows) {
+            win->resetToZero();
+        }
+    };
+    
+    bool stable() const {
+        for (auto win: mWindows) {
+            if (!win->stable()) return false;
+        }
+        return true;
+    }
     
     /////////////////////////// domain ///////////////////////////
     // set domain tag
@@ -74,127 +123,39 @@ public:
         return mDomainTag;
     }
     
-    
+    const std::vector<std::shared_ptr<PointWindow>> &getWindows() const {return mWindows;};
+    const std::vector<std::shared_ptr<WindowSum>> &getWindowSums() const {return mWindowSums;};
+
     /////////////////////// wavefield scanning ///////////////////////
     // enable scanning
     // need this abstract for vertex-only option
-    virtual void enableScanning() = 0;
-    
-protected:
-    // order
-    const int mNr;
-    const int mNu_1;
-    
-    // location (s, z)
-    const eigen::DRow2 mCoords;
-    
-    // tag in spectral-element mesh
-    // * determined by location, mpi-independent
-    // * a pair of solid and fluid points at the same location
-    //   have the same mesh tag
-    const int mMeshTag;
-    
-    // mass
-    const std::unique_ptr<const Mass> mMass;
-    
-    // tag (index) in computational domain, mpi-dependent
-    int mDomainTag = -1;
-};
-
-
-/////////////////////// wavefield scanning ///////////////////////
-class Scanning1D {
-    // typedef
-    typedef numerical::Real Real;
-    // use H2 as the key for fast insertion and deletion
-    typedef std::map<Real, int> ScanMap;
-    
-public:
-    // do scanning
-    template <class CColX>
-    void doScanning(Real relTolFourierH2, Real relTolH2, Real absTolH2,
-                    int maxNumPeaks, const CColX &fseries) {
-        // l2 and h2 norm
-        Real L2 = fseries.squaredNorm();
-        Real H2 = L2 - .5 * fseries.row(0).squaredNorm();
-        
-        // current max
-        Real maxH2 = 0.;
-        if (mCandidates.size() > 0) {
-            maxH2 = mCandidates.rbegin()->first;
-        }
-        
-        // determine whether this can be a candidate
-        if (!(H2 > absTolH2 && H2 > relTolH2 * maxH2 &&
-              mH2Prev > H2 && mH2Prev > mH2PrevPrev)) {
-            // disqualified, update H2 series
-            mH2PrevPrev = mH2Prev;
-            mH2Prev = H2;
-            return;
-        }
-        
-        // test a smaller Nu, starting from 0 (most aggressive)
-        Real absFourier = H2 * relTolFourierH2;
-        int newNu_1 = 1;
-        for (; newNu_1 < fseries.size(); newNu_1++) {
-            // no need to differentiate L2 and H2 for difference
-            if (L2 - fseries.topRows(newNu_1).squaredNorm() < absFourier) {
-                // if this never happens, newNu_1 will become fseries.size()
-                break;
-            }
-        }
-        
-        // add candidate
-        auto itFind = mCandidates.find(H2);
-        if (itFind != mCandidates.end()) {
-            // replace
-            itFind->second = std::max(itFind->second, newNu_1);
+    void enableScanning() {
+        if (mWindowSums[0]->onlyOneWindow()) {
+            mWindows[0]->enableScanning(); // this works because in solid-fluid windows the first window is solid
         } else {
-            // remove tiny values due to new maximum
-            if (maxH2 < H2) {
-                // find deletion point
-                auto deleteIter = mCandidates.lower_bound(relTolH2 * H2);
-                // delete from begin to deletion point
-                mCandidates.erase(mCandidates.cbegin(), deleteIter);
-            }
-            // insert
-            mCandidates.insert({H2, newNu_1});
+            throw std::runtime_error("Point::enableScanning || Wavefield scanning not implemented for multiple windows.");
         }
-        
-        // check number of peaks
-        if (mCandidates.size() > maxNumPeaks) {
-            // remove the first (smallest H2)
-            mCandidates.erase(mCandidates.cbegin());
-        }
-        
-        // update H2 series
-        mH2PrevPrev = mH2Prev;
-        mH2Prev = H2;
-    }
+    };
     
-    // report scanning Nr
-    int reportScanningNr(int originalNr) const {
-        if (mCandidates.size() == 0) {
-            // use 1 for empty (wave has not arrived at this point)
-            return 1;
-        } else {
-            // maximum value in map
-            int nu_1 = std::max_element(mCandidates.begin(), mCandidates.end(),
-                                        [](const ScanMap::value_type &a,
-                                           const ScanMap::value_type &b) {
-                return a.second < b.second;})->second;
-            // return nr
-            return std::min(nu_1 * 2 + 1, originalNr);
-        }
-    }
+    void doScanning(numerical::Real relTolFourierH2, numerical::Real relTolH2,
+                    numerical::Real absTolH2, int maxNumPeaks) {
+        mWindows[0]->doScanning(relTolFourierH2, relTolH2, absTolH2, maxNumPeaks);        
+    };
     
+    int getStartingNr() const {
+        return mWindows[0]->getNr();
+    };
+    
+    int reportScanningNr() const {
+        return mWindows[0]->reportScanningNr();
+    }
+                    
 private:
-    // previous H2 values for peak detection
-    Real mH2PrevPrev = 0.;
-    Real mH2Prev = 0.;
-    
-    // candidates
-    ScanMap mCandidates;
+   std::vector<std::shared_ptr<PointWindow>> mWindows;
+   std::vector<std::shared_ptr<WindowSum>> mWindowSums;
+   int mMeshTag;
+   int mDomainTag;
+   eigen::DRow2 mCoords;
 };
 
-#endif /* Point_hpp */
+#endif

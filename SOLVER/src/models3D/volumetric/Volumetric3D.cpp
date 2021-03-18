@@ -23,18 +23,20 @@ void Volumetric3D::applyTo(std::vector<Quad> &quads) const {
     // data
     if (!isSuperOnly()) {
         for (Quad &quad: quads) {
-            // cardinal coordinates
-            const eigen::DMatX3 &spz =
-            computeElemSPZ(quad, usingUndulatedGeometry());
-            // compute values
-            eigen::IMatXX inScopes;
-            eigen::DMatXX propValues;
-            bool elemInScope = getProperties(spz, quad.getNodalSZ(),
-                                             inScopes, propValues);
-            // set values to quad
-            if (elemInScope) {
-                setPropertiesToQuad(propKeys, refKinds,
-                                    inScopes, propValues, quad);
+            for (int m = 0; m < quad.getM(); m++) {
+                // cardinal coordinates
+                const eigen::DMatX3 &spz =
+                computeElemSPZ(quad, m, usingUndulatedGeometry());
+                // compute values
+                eigen::IMatXX inScopes;
+                eigen::DMatXX propValues;
+                bool elemInScope = getProperties(spz, quad.getNodalSZ(),
+                                                 inScopes, propValues);
+                // set values to quad
+                if (elemInScope) {
+                    setPropertiesToQuad(propKeys, refKinds,
+                                        inScopes, propValues, quad, m);
+                }
             }
         }
     } else {
@@ -45,12 +47,20 @@ void Volumetric3D::applyTo(std::vector<Quad> &quads) const {
             std::vector<eigen::DMat24> szAll;
             if (irank == mpi::rank()) {
                 // gather coords
-                spzAll.reserve(quads.size());
-                szAll.reserve(quads.size());
+                int nwins = 0;
                 for (Quad &quad: quads) {
-                    spzAll.push_back
-                    (computeElemSPZ(quad, usingUndulatedGeometry()));
-                    szAll.push_back(quad.getNodalSZ());
+                    nwins += quad.getM();
+                }
+                spzAll.reserve(nwins);
+                szAll.reserve(nwins); // not ideal to duplicate sz data, but easiest for comms
+                                      // alternatives: create sendVecVecEigen for spzAll or 
+                                      // build and send global window tags
+                for (Quad &quad: quads) {
+                    for (int m = 0; m < quad.getM(); m++) {
+                        spzAll.push_back
+                        (computeElemSPZ(quad, m, usingUndulatedGeometry()));
+                        szAll.push_back(quad.getNodalSZ());
+                    }
                 }
                 // send coords to super
                 mpi::sendVecEigen(0, spzAll, 0);
@@ -66,15 +76,15 @@ void Volumetric3D::applyTo(std::vector<Quad> &quads) const {
                 mpi::recvVecEigen(irank, spzAll, 0);
                 mpi::recvVecEigen(irank, szAll, 1);
                 // allocate values
-                int nQuad = (int)spzAll.size();
-                inScopesAll.reserve(nQuad);
-                propValuesAll.reserve(nQuad);
-                elemInScopeAll.push_back(eigen::IColX::Zero(nQuad));
+                int nWin = (int)spzAll.size();
+                inScopesAll.reserve(nWin);
+                propValuesAll.reserve(nWin);
+                elemInScopeAll.push_back(eigen::IColX::Zero(nWin));
                 // compute values
-                for (int iq = 0; iq < nQuad; iq++) {
+                for (int iw = 0; iw < nWin; iw++) {
                     eigen::IMatXX inScopes;
                     eigen::DMatXX propValues;
-                    elemInScopeAll[0](iq) = getProperties(spzAll[iq], szAll[iq],
+                    elemInScopeAll[0](iw) = getProperties(spzAll[iw], szAll[iw],
                                                           inScopes, propValues);
                     inScopesAll.push_back(inScopes);
                     propValuesAll.push_back(propValues);
@@ -92,12 +102,16 @@ void Volumetric3D::applyTo(std::vector<Quad> &quads) const {
                 mpi::recvVecEigen(0, propValuesAll, 1);
                 mpi::recvVecEigen(0, elemInScopeAll, 2);
                 // set values to quads
-                for (int iquad = 0; iquad < spzAll.size(); iquad++) {
-                    if (elemInScopeAll[0](iquad)) {
-                        setPropertiesToQuad(propKeys, refKinds,
-                                            inScopesAll[iquad],
-                                            propValuesAll[iquad],
-                                            quads[iquad]);
+                int iw = 0;
+                for (Quad &quad: quads) {
+                    for (int m = 0; m < quad.getM(); m++) {
+                        if (elemInScopeAll[0](iw)) {
+                            setPropertiesToQuad(propKeys, refKinds,
+                                                inScopesAll[iw],
+                                                propValuesAll[iw],
+                                                quad, m);
+                        }
+                        iw++;
                     }
                 }
             }
@@ -114,9 +128,9 @@ setPropertiesToQuad(const std::vector<std::string> &propKeys,
                     const std::vector<ReferenceKind> &refKinds,
                     const eigen::IMatXX &inScopes,
                     const eigen::DMatXX &propValues,
-                    Quad &quad) const {
+                    Quad &quad, int m) const {
     // property loop
-    const eigen::IRowN &pointNr = quad.getPointNr();
+    const eigen::IRowN &pointNr = quad.getPointNr(m);
     int nprop = (int)propKeys.size();
     for (int iprop = 0; iprop < nprop; iprop++) {
         // flattened to structured
@@ -130,7 +144,7 @@ setPropertiesToQuad(const std::vector<std::string> &propKeys,
             row += nr;
         }
         // set to material
-        quad.getMaterialPtr()->
+        quad.getMaterialPtr(m)->
         addProperty3D(propKeys[iprop], refKinds[iprop], inScope, propValue);
     }
 }

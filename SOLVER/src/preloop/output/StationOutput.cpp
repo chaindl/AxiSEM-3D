@@ -312,7 +312,7 @@ void StationOutput::release(const SE_Model &sem, Domain &domain, double dt,
             
             // locate in mesh
             int quadTag =
-            sem.locateInplane(spz({0, 2}).transpose(), stgrp->mFluid);
+            sem.locateInplane(spz({0, 2}).transpose(), spz(1), stgrp->mFluid);
             if (quadTag != -1) {
                 stationRank.insert({ist, mpi::rank()});
                 stationQuad.insert({ist, quadTag});
@@ -430,18 +430,25 @@ void StationOutput::release(const SE_Model &sem, Domain &domain, double dt,
             const eigen::DRowN &inplaneFactor =
             sem.computeInplaneFactor(spz({0, 2}).transpose(), quadTag);
             
+            // get windows from phi
+            eigen::DRowX phi_local = quads[quadTag].computeRelativeWindowPhis(std::vector<double>{spz(1)}).row(0);
+            std::vector<std::pair<int, double>> windowPhis;
+            for (int m = 0; m < phi_local.size(); m++) {
+                if (phi_local(m) >= 0) windowPhis.push_back(std::make_pair(m,phi_local(m)));
+            }
+            
             // station
             if (stgrp->mFluid) {
                 std::unique_ptr<StationFluid> st =
                 std::make_unique<StationFluid>(stKeys[ist], spz(1), theta, baz);
-                st->setElement(quads[stationQuad[ist]].getFluidElement(),
-                               inplaneFactor);
+                st->setElement(quads[quadTag].getElement(),
+                               inplaneFactor, windowPhis);
                 SGF->addStation(st);
             } else {
                 std::unique_ptr<StationSolid> st =
                 std::make_unique<StationSolid>(stKeys[ist], spz(1), theta, baz);
-                st->setElement(quads[stationQuad[ist]].getSolidElement(),
-                               inplaneFactor);
+                st->setElement(quads[quadTag].getElement(),
+                               inplaneFactor, windowPhis);
                 SGS->addStation(st);
             }
         }

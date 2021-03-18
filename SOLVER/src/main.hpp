@@ -58,8 +58,10 @@ std::unique_ptr<ExodusMesh> buildExodusMesh();
 // ABC
 std::unique_ptr<const ABC> buildABC(const ExodusMesh &exodusMesh);
 
+std::unique_ptr<const NrField> buildNrField(const ExodusMesh &exodusMesh);
+
 // compute nr field and weights
-eigen::DColX computeNrFieldAndWeights(ExodusMesh &exodusMesh);
+eigen::DColX buildNodalNrFieldAndWeights(ExodusMesh &exodusMesh, const NrField &nrField);
 
 // build nr-weighted local mesh
 std::unique_ptr<LocalMesh>
@@ -73,7 +75,7 @@ void buildModels3D(const ExodusMesh &exodusMesh, const LocalMesh &localMesh,
 
 // build SE model
 std::unique_ptr<SE_Model>
-buildSE_Model(const ExodusMesh &exodusMesh,
+buildSE_Model(const ExodusMesh &exodusMesh, const NrField &nrField,
               const ABC &abc, LocalMesh &localMesh,
               const std::vector<std::shared_ptr<const Model3D>> &models3D,
               const std::string &stageKey);

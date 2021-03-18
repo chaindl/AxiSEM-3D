@@ -37,10 +37,11 @@ int main(int argc, char *argv[]) {
         std::unique_ptr<const ABC> abc = buildABC(*exodusMesh);
         timer::gPreloopTimer.ended("ABC parameters", '*');
         
-        // compute nr field
-        timer::gPreloopTimer.begin("Nr(s,z) and weights", '*');
-        eigen::DColX nrWeights = computeNrFieldAndWeights(*exodusMesh);
-        timer::gPreloopTimer.ended("Nr(s,z) and weights", '*');
+        // estimate nr field
+        timer::gPreloopTimer.begin("Nr estimate and weights", '*');
+        std::unique_ptr<const NrField> nrField = buildNrField(*exodusMesh);
+        eigen::DColX nrWeights = buildNodalNrFieldAndWeights(*exodusMesh, *nrField);
+        timer::gPreloopTimer.ended("Nr estimate and weights", '*');
         
         // build nr-weighted local mesh
         timer::gPreloopTimer.begin("Nr-weighted local mesh", '*');
@@ -58,7 +59,7 @@ int main(int argc, char *argv[]) {
         // build SE model
         timer::gPreloopTimer.begin("Spectral element model (ROOT)", '*');
         std::unique_ptr<SE_Model> sem =
-        buildSE_Model(*exodusMesh, *abc, *localMesh, models3D, "Stage-I");
+        buildSE_Model(*exodusMesh, *nrField, *abc, *localMesh, models3D, "Stage-I");
         timer::gPreloopTimer.ended("Spectral element model (ROOT)", '*');
         
         // dt
@@ -121,7 +122,7 @@ int main(int argc, char *argv[]) {
         // build SE model
         timer::gPreloopTimer.begin("Spectral element model (ROOT)", '*');
         sem =
-        buildSE_Model(*exodusMesh, *abc, *localMesh, models3D, "Stage-II");
+        buildSE_Model(*exodusMesh, *nrField, *abc, *localMesh, models3D, "Stage-II");
         timer::gPreloopTimer.ended("Spectral element model (ROOT)", '*');
         
         // domain
@@ -139,6 +140,7 @@ int main(int argc, char *argv[]) {
         double distTol = exodusMesh->getGlobalVariable("dist_tolerance");
         exodusMesh.reset();
         localMesh.reset();
+        nrField.reset();
         abc.reset();
         attBuilder.reset();
         timer::gPreloopTimer.ended("Freeing memory Stage-II", '*');
@@ -284,30 +286,23 @@ std::unique_ptr<const ABC> buildABC(const ExodusMesh &exodusMesh) {
     return abc;
 }
 
+std::unique_ptr<const NrField> buildNrField(const ExodusMesh &exodusMesh) {
+    std::unique_ptr<NrField> nrField = std::make_unique<NrField>(exodusMesh);
+    return nrField;
+}
+
 // compute nr field
-eigen::DColX computeNrFieldAndWeights(ExodusMesh &exodusMesh) {
+eigen::DColX buildNodalNrFieldAndWeights(ExodusMesh &exodusMesh, const NrField &nrField) {
     mpi::enterSuper();
-    if (mpi::super()) {
-        // create nr field on super (timer inside)
-        std::unique_ptr<const NrField> nrField =
-        NrField::buildInparam(exodusMesh);
-        if (io::gVerbose != io::VerboseLevel::None) {
-            io::cout << nrField->verbose();
-        }
-        
+    if (mpi::super()) {        
         // compute nr on mesh
-        timer::gPreloopTimer.begin("Computing Nr at mesh nodes");
-        // additional parameters
-        bool boundByInplane =
-        inparam::gInparamNr.get<bool>("bound_Nr_by_inplane");
-        bool useLuckyNumbers =
-        inparam::gInparamAdvanced.get<bool>("develop:fftw_lucky_numbers");
+        timer::gPreloopTimer.begin("Esimating Nr at mesh nodes");
         // compute
-        exodusMesh.formNrAtNodes(*nrField, boundByInplane, useLuckyNumbers);
+        exodusMesh.formNrAtNodes(nrField);
         if (io::gVerbose != io::VerboseLevel::None) {
-            io::cout << exodusMesh.verboseNr(boundByInplane, useLuckyNumbers);
+            io::cout << exodusMesh.verboseNr(inparam::gInparamNr.get<bool>("bound_Nr_by_inplane"));
         }
-        timer::gPreloopTimer.ended("Computing Nr at mesh nodes");
+        timer::gPreloopTimer.ended("Estimating Nr at mesh nodes");
     }
     mpi::enterWorld();
     
@@ -317,7 +312,7 @@ eigen::DColX computeNrFieldAndWeights(ExodusMesh &exodusMesh) {
     if (mpi::super()) {
         weights = mpi::
         nodalToElemental(exodusMesh.getConnectivity(),
-                         exodusMesh.getNrAtNodes().cast<double>().eval(), true);
+                         exodusMesh.getNrEstimateAtNodes(nrField.getOverlapMinNr()), true);
         // also differentiate solid (x10) and fluid (x1)
         weights.array() *=
         (10 - 9 * exodusMesh.getIsElementFluid().array()).cast<double>();
@@ -407,13 +402,13 @@ void buildModels3D(const ExodusMesh &exodusMesh, const LocalMesh &localMesh,
 
 // build SE model
 std::unique_ptr<SE_Model>
-buildSE_Model(const ExodusMesh &exodusMesh,
+buildSE_Model(const ExodusMesh &exodusMesh, const NrField &nrField,
               const ABC &abc, LocalMesh &localMesh,
               const std::vector<std::shared_ptr<const Model3D>> &models3D,
               const std::string &stageKey) {
     // build model
     std::unique_ptr<SE_Model> sem =
-    std::make_unique<SE_Model>(exodusMesh, abc, localMesh, models3D);
+    std::make_unique<SE_Model>(exodusMesh, nrField, abc, localMesh, models3D);
     // free dummy memory
     localMesh.freeMemorySE_ModelBuilt();
     

@@ -12,14 +12,14 @@
 #define SolidSource_hpp
 
 #include "ElementSource.hpp"
-class SolidElement;
+class Element;
 
 class SolidSource: public ElementSource {
 public:
     // constructor
     SolidSource(std::unique_ptr<STF> &stf,
-                const std::shared_ptr<const SolidElement> &element):
-    ElementSource(stf), mElement(element) {
+                const std::shared_ptr<const Element> &element, int m):
+    ElementSource(stf), mElement(element), mM(m) {
         // nothing
     }
     
@@ -28,7 +28,8 @@ public:
     
 protected:
     // element pointer
-    const std::shared_ptr<const SolidElement> mElement;
+    const std::shared_ptr<const Element> mElement;
+    const int mM;
 };
 
 #endif /* SolidSource_hpp */

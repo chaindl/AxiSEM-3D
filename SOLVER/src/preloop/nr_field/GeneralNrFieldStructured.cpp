@@ -1,5 +1,5 @@
 //
-//  NrFieldStructured.cpp
+//  GeneralNrFieldStructured.cpp
 //  AxiSEM3D
 //
 //  Created by Kuangdai Leng on 3/15/20.
@@ -8,11 +8,11 @@
 
 //  structured Nr(s,z)
 
-#include "NrFieldStructured.hpp"
+#include "GeneralNrFieldStructured.hpp"
 #include "geodesy.hpp"
 
 // constructor
-NrFieldStructured::NrFieldStructured(const std::string &fname,
+GeneralNrFieldStructured::GeneralNrFieldStructured(const std::string &fname,
                                      int valOutOfRange):
 mFilename(fname), mValueOutOfRange(valOutOfRange) {
     // coords
@@ -30,26 +30,22 @@ mFilename(fname), mValueOutOfRange(valOutOfRange) {
 }
 
 // get nr by (s, z)
-eigen::IColX NrFieldStructured::
-getNrAtPoints(const eigen::DMatX2_RM &sz) const {
-    eigen::IColX nr(sz.rows());
+int GeneralNrFieldStructured::
+getNrAtPoint(const eigen::DCol2 &sz) const {
+    int nr;
     if (geodesy::isCartesian()) {
         // Cartesian
-        for (int ip = 0; ip < sz.rows(); ip++) {
-            nr(ip) = mGrid->compute(sz.row(ip), mValueOutOfRange);
-        }
+        nr = mGrid->compute(sz, mValueOutOfRange);
     } else {
         // spherical
         const auto &rt = geodesy::sz2rtheta(sz, true);
-        for (int ip = 0; ip < sz.rows(); ip++) {
-            nr(ip) = mGrid->compute(rt.row(ip), mValueOutOfRange);
-        }
+        nr = mGrid->compute(rt, mValueOutOfRange);
     }
     return nr;
 }
 
 // verbose
-std::string NrFieldStructured::verbose() const {
+std::string GeneralNrFieldStructured::verbose() const {
     using namespace bstring;
     
     // title

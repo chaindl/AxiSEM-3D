@@ -34,7 +34,7 @@ protected:
     
     // set sum(rho * depth) to quad
     virtual void setSumRhoDepthToQuad(const eigen::DColX &sumRhoDepth,
-                                      Quad &quad) const;
+                                      Quad &quad, const int m) const;
     
     
     ////////////////////////////// static //////////////////////////////

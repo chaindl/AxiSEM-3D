@@ -14,6 +14,7 @@
 #include "eigen_mesh.hpp"
 #include <map>
 #include <vector>
+#include <numeric>
 
 class NetCDF_Reader;
 class NrField;
@@ -57,13 +58,11 @@ private:
 public:
     ///////////////// nr field /////////////////
     // Nr at nodes
-    void formNrAtNodes(const NrField &nrField,
-                       bool boundByInplane, bool useLuckyNumbers);
+    void formNrAtNodes(const NrField &nrField);
     
-    // verbose Nr
-    std::string verboseNr(bool boundByInplane, bool useLuckyNumbers) const;
+    std::string verboseNr(bool boundByInplane) const;
     
-    
+    double computeAveGLLSpacing() const;
     ////////////////////////////////////////////
     /////////////////// data ///////////////////
     ////////////////////////////////////////////
@@ -110,7 +109,7 @@ private:
         eigen::IColX mIsElementFluid = eigen::IColX(0);
         
         // Nr at nodes
-        eigen::IColX mNodalNr = eigen::IColX(0);
+        std::vector<std::vector<std::pair<double, double>>> mNodalNr;
     } mSuperOnly__AccessOnlyBy__mySuperOnly;
     
     // set access to super-only
@@ -157,10 +156,44 @@ public:
     }
     
     // Nr at nodes
-    const eigen::IColX &getNrAtNodes() const {
-        return mySuperOnly().mNodalNr;
+    eigen::DColX getNrEstimateAtNodes(int overlapNr) const {
+        eigen::DColX nr_sum = eigen::DColX::Zero(getNumNodes(), 1);
+        for (int i = 0; i < getNumNodes(); i++) {
+            if (mySuperOnly().mNodalNr[i].size() == 1) {
+                nr_sum(i) = mySuperOnly().mNodalNr[i][0].second;
+            } else {
+                for (auto &win: mySuperOnly().mNodalNr[i]) {
+                    nr_sum(i) += win.second + overlapNr;
+                }
+            }
+        }
+        return nr_sum;
     }
     
+    std::vector<std::pair<double, double>> getNrAtNode(int inode) const {
+        return mySuperOnly().mNodalNr[inode];
+    }
+    
+    std::string memoryInfoNr() {
+        // total size
+        int wins_total = 0;
+        for (auto &nodalWins: mySuperOnly().mNodalNr) {
+            wins_total += nodalWins.size();
+        }
+
+        double memGB = (wins_total * sizeof(std::pair<double, double>) 
+                       + mySuperOnly().mNodalNr.size() * sizeof(std::vector<std::pair<double, double>>)
+                       + sizeof(std::vector<std::vector<std::pair<double, double>>>)) / 1e9;
+        // format
+        std::stringstream ss;
+        ss << "nodal Nr (super-only): ";
+        ss << "Vector of vectors; ";
+        ss << "length = " << mySuperOnly().mNodalNr.size() << "; flattened length = " << wins_total << "; ";
+        ss << "type = pair of doubles (" << sizeof(std::pair<double, double>) << " bytes); ";
+        ss << "memory = " << memGB << " GB";
+
+        return ss.str();
+    }
     
     ///////////////// non-super-only properties /////////////////
     // Cartesian

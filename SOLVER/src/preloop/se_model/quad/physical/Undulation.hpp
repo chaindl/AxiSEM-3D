@@ -52,7 +52,7 @@ public:
     void finishing3D() const;
     
     // finished 3D properties
-    void finished3D(const Quad &myQuad);
+    void finished3D(const Quad &myQuad, double winFrac);
     
     // get Jacobian for mass
     eigen::arN_DColX getMassJacobian(const eigen::DMat2N &sz) const;

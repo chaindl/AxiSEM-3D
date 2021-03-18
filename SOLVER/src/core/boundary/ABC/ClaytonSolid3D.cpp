@@ -16,13 +16,13 @@
 //  rpa -> rho * vp * area
 
 #include "ClaytonSolid3D.hpp"
-#include "SolidPoint.hpp"
+#include "SolidPointWindow.hpp"
 #include "fft.hpp"
 
 // check compatibility
 void ClaytonSolid3D::checkCompatibility() {
     // check size
-    int nr = mSolidPoint->getNr();
+    int nr = mSolidPointWindow->getNr();
     if (nr != mRSA.rows()) {
         throw std::runtime_error("ClaytonSolid3D::checkCompatibility ||"
                                  "Incompatible sizes.");
@@ -42,8 +42,8 @@ void ClaytonSolid3D::checkCompatibility() {
 // apply ABC
 void ClaytonSolid3D::apply() const {
     // get fields
-    const eigen::CMatX3 &veloc = mSolidPoint->getFields().mVeloc;
-    eigen::CMatX3 &stiff = mSolidPoint->getFields().mStiff;
+    const eigen::CMatX3 &veloc = mSolidPointWindow->getFields().mVeloc;
+    eigen::CMatX3 &stiff = mSolidPointWindow->getFields().mStiff;
     
     // constants
     int nr = (int)mRSA.rows();

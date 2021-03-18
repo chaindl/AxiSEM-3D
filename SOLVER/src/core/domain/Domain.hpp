@@ -15,10 +15,8 @@
 #include <memory>
 
 // mesh
-class SolidPoint;
-class FluidPoint;
-class SolidElement;
-class FluidElement;
+class Point;
+class Element;
 
 // boundary
 class SolidFluidBoundary;
@@ -30,7 +28,6 @@ class FluidSurfaceBoundary;
 class Messaging;
 
 // source
-class WavefieldInjection;
 class ElementSource;
 
 // station output
@@ -58,23 +55,14 @@ public:
     Domain();
     
     ////////////////////// domain construction //////////////////////
-    // add a solid point
-    void addSolidPoint(const std::shared_ptr<SolidPoint> &point);
+    // add a point
+    void addPoint(const std::shared_ptr<Point> &point);
     
-    // add a fluid point
-    void addFluidPoint(const std::shared_ptr<FluidPoint> &point);
+    // add an element
+    void addElement(const std::shared_ptr<Element> &element);
     
-    // add a solid element
-    void addSolidElement(const std::shared_ptr<SolidElement> &element);
-    
-    // add a fluid element
-    void addFluidElement(const std::shared_ptr<FluidElement> &element);
-    
-    // replace a solid element
-    void replaceSolidElement(const std::shared_ptr<SolidElement> &element);
-    
-    // replace a fluid element
-    void replaceFluidElement(const std::shared_ptr<FluidElement> &element);
+    // replace an element
+    void replaceElement(const std::shared_ptr<Element> &element);
     
     // set mpi messaging
     void setMessaging(std::unique_ptr<Messaging> &msg);
@@ -87,7 +75,7 @@ public:
     // SOLVING STAGE //
     
     // set wavefield injection
-    void setWavefieldInjection(std::unique_ptr<WavefieldInjection> &wj);
+    // void setWavefieldInjection(std::unique_ptr<WavefieldInjection> &wj);
     
     // add a source
     void addElementSource(std::unique_ptr<const ElementSource> &esrc);
@@ -112,27 +100,15 @@ public:
     
     ////////////////////// get domain //////////////////////
     // get solid points
-    inline const std::vector<std::shared_ptr<SolidPoint>> &
-    getSolidPoints() const {
-        return mSolidPoints;
+    inline const std::vector<std::shared_ptr<Point>> &
+    getPoints() const {
+        return mPoints;
     }
-    
-    // get fluid points
-    inline const std::vector<std::shared_ptr<FluidPoint>> &
-    getFluidPoints() const {
-        return mFluidPoints;
-    }
-    
-    // get solid elements
-    inline const std::vector<std::shared_ptr<const SolidElement>> &
-    getSolidElements() const {
-        return mSolidElements;
-    }
-    
-    // get fluid elements
-    inline const std::vector<std::shared_ptr<const FluidElement>> &
-    getFluidElements() const {
-        return mFluidElements;
+
+    // get elements
+    inline const std::vector<std::shared_ptr<const Element>> &
+    getElements() const {
+        return mElements;
     }
     
     // get solid-fluid boundary
@@ -178,6 +154,8 @@ public:
     
     // stiff to accel on points
     void computeStiffToAccel() const;
+    void combinePointWindows() const;
+    void separatePointWindows() const;
     
     // mpi phase 1: commGatherSendRecv
     void mpiGatherSendRecv() const;
@@ -210,12 +188,10 @@ public:
 private:
     ////////////////////// spectral elements //////////////////////
     // points
-    std::vector<std::shared_ptr<SolidPoint>> mSolidPoints;
-    std::vector<std::shared_ptr<FluidPoint>> mFluidPoints;
+    std::vector<std::shared_ptr<Point>> mPoints;
     
     // elements
-    std::vector<std::shared_ptr<const SolidElement>> mSolidElements;
-    std::vector<std::shared_ptr<const FluidElement>> mFluidElements;
+    std::vector<std::shared_ptr<const Element>> mElements;
     
     
     ////////////////////// boundaries //////////////////////
@@ -241,7 +217,7 @@ private:
     
     ////////////////////// source //////////////////////
     // injection
-    std::unique_ptr<const WavefieldInjection> mWavefieldInjection;
+    // std::unique_ptr<const WavefieldInjection> mWavefieldInjection;
     
     // sources
     std::vector<std::unique_ptr<const ElementSource>> mElementSources;

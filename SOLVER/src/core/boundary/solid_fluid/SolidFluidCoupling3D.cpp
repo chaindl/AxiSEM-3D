@@ -9,21 +9,21 @@
 //  solid-fluid boundary condition in 3D
 
 #include "SolidFluidCoupling3D.hpp"
-#include "SolidPoint.hpp"
+#include "SolidPointWindow.hpp"
 #include "fft.hpp"
 
 // constructor
 SolidFluidCoupling3D::
-SolidFluidCoupling3D(const std::shared_ptr<SolidPoint> &sp,
-                     const std::shared_ptr<FluidPoint> &fp,
+SolidFluidCoupling3D(const std::shared_ptr<SolidPointWindow> &spw,
+                     const std::shared_ptr<FluidPointWindow> &fpw,
                      const eigen::DMatX3 &n_unassmb,
                      const eigen::DMatX3 &n_assmb,
                      const eigen::DColX &massFluid):
-SolidFluidCoupling(sp, fp),
+SolidFluidCoupling(spw, fpw),
 mNormal_UnassembledMPI(n_unassmb.cast<numerical::Real>()),
 mNormal_AssembledMPI_InvMassFluid((massFluid.cwiseInverse().asDiagonal() *
                                    n_assmb).cast<numerical::Real>()) {
-    checkCompatibility(mSolidPoint->getNr());
+    checkCompatibility(mSolidPointWindow->getNr());
 }
 
 // check compatibility

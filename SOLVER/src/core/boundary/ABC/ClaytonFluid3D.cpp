@@ -9,13 +9,13 @@
 //  Clayton-Enquist ABC for fluid points in 3D
 
 #include "ClaytonFluid3D.hpp"
-#include "FluidPoint.hpp"
+#include "FluidPointWindow.hpp"
 #include "fft.hpp"
 
 // check compatibility
 void ClaytonFluid3D::checkCompatibility() {
     // check size
-    int nr = mFluidPoint->getNr();
+    int nr = mFluidPointWindow->getNr();
     if (nr != mAreaOverRhoVp.rows()) {
         throw std::runtime_error("ClaytonFluid3D::checkCompatibility ||"
                                  "Incompatible sizes.");
@@ -34,11 +34,11 @@ void ClaytonFluid3D::checkCompatibility() {
 // apply ABC
 void ClaytonFluid3D::apply() const {
     // get fields
-    const eigen::CColX &veloc = mFluidPoint->getFields().mVeloc;
-    eigen::CColX &stiff = mFluidPoint->getFields().mStiff;
+    const eigen::CColX &veloc = mFluidPointWindow->getFields().mVeloc;
+    eigen::CColX &stiff = mFluidPointWindow->getFields().mStiff;
     
     // constants
-    int nr = mFluidPoint->getNr();
+    int nr = mFluidPointWindow->getNr();
     int nu_1 = nr / 2 + 1;
     
     // FFT: Fourier => cardinal

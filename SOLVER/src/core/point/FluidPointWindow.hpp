@@ -8,19 +8,22 @@
 
 //  fluid GLL point
 
-#ifndef FluidPoint_hpp
-#define FluidPoint_hpp
+#ifndef FluidPointWindow_hpp
+#define FluidPointWindow_hpp
 
-#include "Point.hpp"
+#include "PointWindow.hpp"
 #include "eigen_element.hpp"
+#include "Scanning1D.hpp"
+
 class TimeScheme;
 
-class FluidPoint: public Point {
+class FluidPointWindow: public PointWindow {
 public:
     // constructor
-    FluidPoint(int nr, const eigen::DRow2 &crds, int meshTag,
+    FluidPointWindow(const eigen::RMatX2 &windowSumPhi,
                std::unique_ptr<const Mass> &mass,
-               const TimeScheme &timeScheme);
+               const TimeScheme &timeScheme,
+               const std::shared_ptr<Point> point);
     
 public:
     /////////////////////////// measure ///////////////////////////
@@ -39,6 +42,7 @@ public:
     // reset to zero
     void resetToZero() {
         mFields.mStiff.setZero();
+        mFields.mStiffR.setZero();
         mFields.mDispl.setZero();
         mFields.mVeloc.setZero();
         mFields.mAccel.setZero();
@@ -47,26 +51,6 @@ public:
         mFields.mDeltaStore.setZero();
     }
     
-    
-    /////////////////////////// mpi ///////////////////////////
-    // size for mpi communication
-    int sizeComm() const {
-        return (int)mFields.mStiff.size();
-    }
-    
-    // feed to mpi buffer
-    void feedComm(eigen::CColX &buffer, int &row) const {
-        buffer.block(row, 0, mFields.mStiff.rows(), 1) = mFields.mStiff;
-        row += mFields.mStiff.rows();
-    }
-    
-    // extract from mpi buffer
-    void extractComm(const eigen::CColX &buffer, int &row) {
-        mFields.mStiff += buffer.block(row, 0, mFields.mStiff.rows(), 1);
-        row += mFields.mStiff.rows();
-    }
-    
-    
     /////////////////////////// time loop ///////////////////////////
     // check stability
     bool stable() const {
@@ -74,12 +58,22 @@ public:
     }
     
     // stiff to accel
+    void transformToPhysical();
     void computeStiffToAccel();
+    void transformToFourier();
+    void applyPressureSource();
     
+    /////////////////////////// window sum  ///////////////////////////
+
+    eigen::RColX getStiffForWindowSum() {return mFields.mStiffR;};
+    
+    void collectStiffFromWindowSum(const eigen::RColX &stiff) {
+        mFields.mStiffR = stiff.cwiseProduct(mWindowSumFrac);
+    }
     
     /////////////////////////// element ///////////////////////////
     // scatter displ to element
-    void scatterDisplToElement(eigen::vec_ar1_CMatPP_RM &displ,
+    void scatterDisplToElementWindow(eigen::vec_ar1_CMatPP_RM &displ,
                                int nu_1_element, int ipol, int jpol) const {
         // copy lower orders
         for (int alpha = 0; alpha < mNu_1; alpha++) {
@@ -94,7 +88,7 @@ public:
     }
     
     // gather stiff from element
-    void gatherStiffFromElement(const eigen::vec_ar1_CMatPP_RM &stiff,
+    void gatherStiffFromElementWindow(const eigen::vec_ar1_CMatPP_RM &stiff,
                                 int ipol, int jpol) {
         // add lower orders only
         for (int alpha = 0; alpha < mNu_1; alpha++) {
@@ -138,7 +132,7 @@ public:
     }
     
     // scatter pressure to element
-    void scatterPressureToElement(eigen::CMatXN &pressure,
+    void scatterPressureToElementWindow(eigen::CMatXN &pressure,
                                   int nu_1_element, int ipnt) const {
         // copy lower orders
         pressure.block(0, ipnt, mNu_1, 1) = mFields.mPressureStore;
@@ -148,7 +142,7 @@ public:
     }
     
     // scatter delta to element
-    void scatterDeltaToElement(eigen::CMatXN &delta,
+    void scatterDeltaToElementWindow(eigen::CMatXN &delta,
                                int nu_1_element, int ipnt) const {
         // copy lower orders
         delta.block(0, ipnt, mNu_1, 1) = mFields.mDeltaStore;
@@ -159,9 +153,12 @@ public:
     
     
     /////////////////////////// fields ///////////////////////////
+    FluidPointWindow* getFluidPointWindow() {return this;};
+    
     // fields on a fluid point
     struct Fields {
         eigen::CColX mStiff = eigen::CColX(0, 1);
+        eigen::RColX mStiffR = eigen::RColX(0, 1);
         eigen::CColX mDispl = eigen::CColX(0, 1);
         eigen::CColX mVeloc = eigen::CColX(0, 1);
         eigen::CColX mAccel = eigen::CColX(0, 1);
@@ -191,7 +188,6 @@ private:
     // fields on a fluid point
     Fields mFields;
     
-    
     /////////////////////////// wavefield scanning ///////////////////////////
 public:
     // enable scanning
@@ -211,7 +207,7 @@ public:
     
     // do scanning
     void doScanning(numerical::Real relTolFourierH2, numerical::Real relTolH2,
-                    numerical::Real absTolH2, int maxNumPeaks) const {
+                    numerical::Real absTolH2, int maxNumPeaks) {
         if (mScanningChi) {
             mScanningChi->doScanning(relTolFourierH2, relTolH2, absTolH2,
                                      maxNumPeaks, mFields.mDispl);

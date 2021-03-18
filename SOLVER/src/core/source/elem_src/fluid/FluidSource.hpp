@@ -12,14 +12,14 @@
 #define FluidSource_hpp
 
 #include "ElementSource.hpp"
-class FluidElement;
+class Element;
 
 class FluidSource: public ElementSource {
 public:
     // constructor
     FluidSource(std::unique_ptr<STF> &stf,
-                const std::shared_ptr<const FluidElement> &element):
-    ElementSource(stf), mElement(element) {
+                const std::shared_ptr<const Element> &element, int m):
+    ElementSource(stf), mElement(element), mM(m) {
         // nothing
     }
     
@@ -28,7 +28,8 @@ public:
     
 protected:
     // element pointer
-    const std::shared_ptr<const FluidElement> mElement;
+    const std::shared_ptr<const Element> mElement;
+    const int mM;
 };
 
 #endif /* FluidSource_hpp */

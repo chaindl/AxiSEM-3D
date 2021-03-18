@@ -12,6 +12,7 @@
 #define Messaging_hpp
 
 #include "MessageRank.hpp"
+#include "Point.hpp"
 
 class Messaging {
 public:
@@ -26,7 +27,7 @@ public:
     void commGatherSendRecv() {
         for (int icomm = 0; icomm < mMessageRanks.size(); icomm++) {
             // gather
-            mMessageRanks[icomm]->gatherFromPoints();
+            mMessageRanks[icomm]->gatherFromPointWindows();
             // send
             mMessageRanks[icomm]->sendBuffer(mRequestsSend[icomm]);
             // recv
@@ -40,17 +41,27 @@ public:
         mpi::waitAll(mRequestsRecv);
         // scatter
         for (int icomm = 0; icomm < mMessageRanks.size(); icomm++) {
-            mMessageRanks[icomm]->scatterToPoints();
+            mMessageRanks[icomm]->scatterToPointWindows();
         }
         // wait for send
         mpi::waitAll(mRequestsSend);
     }
     
     // check if a point exists in a domain of smaller rank
-    bool pointInSmallerRank(const std::shared_ptr<const Point> &target) const {
+    bool pointInSmallerRank(const std::shared_ptr<const PointWindow> &target) const {
         for (int icomm = 0; icomm < mMessageRanks.size(); icomm++) {
             if (mMessageRanks[icomm]->getRankOther() < mpi::rank()
                 && mMessageRanks[icomm]->contains(target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    bool pointInSmallerRank(const std::shared_ptr<const Point> &target) const {
+        for (int icomm = 0; icomm < mMessageRanks.size(); icomm++) {
+            if (mMessageRanks[icomm]->getRankOther() < mpi::rank()
+                && mMessageRanks[icomm]->contains(target->getWindows()[0])) {
                 return true;
             }
         }

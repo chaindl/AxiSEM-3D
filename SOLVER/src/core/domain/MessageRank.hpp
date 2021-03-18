@@ -13,9 +13,8 @@
 
 // point
 #include <memory>
-class Point;
-class SolidPoint;
-class FluidPoint;
+class PointWindow;
+class WindowSum;
 
 // buffer
 #include "eigen_generic.hpp"
@@ -29,11 +28,10 @@ public:
     // NOTE: it may contain a solid point or a fluid point or both
     //       std::map cannot be used because it changes the order of insertion
     typedef std::tuple<int,
-    std::shared_ptr<SolidPoint>,
-    std::shared_ptr<FluidPoint>> MeshPoint;
+    std::vector<std::shared_ptr<WindowSum>>> MeshWindowSum;
     
     // constructor
-    MessageRank(int rankOther, const std::vector<MeshPoint> &meshPoints);
+    MessageRank(int rankOther, const std::vector<MeshWindowSum> &MeshWindowSums);
     
 private:
     // allocate buffer
@@ -41,10 +39,10 @@ private:
     
 public:
     // gather from points
-    void gatherFromPoints();
+    void gatherFromPointWindows();
     
     // scatter to points
-    void scatterToPoints() const;
+    void scatterToPointWindows() const;
     
     // send buffer to the other rank
     void sendBuffer(MPI_Request &request) const {
@@ -57,7 +55,7 @@ public:
     }
     
     // check if a point exists on this domain boundary
-    bool contains(const std::shared_ptr<const Point> &target) const;
+    bool contains(const std::shared_ptr<const PointWindow> &target) const;
     
     // get the other rank
     inline int getRankOther() const {
@@ -69,11 +67,11 @@ private:
     const int mRankOther;
     
     // my points involved in this 1-to-1 communication
-    std::vector<MeshPoint> mMeshPoints;
+    std::vector<MeshWindowSum> mMeshWindowSums;
     
     // buffers
-    eigen::CColX mBufferSend = eigen::CColX(0);
-    eigen::CColX mBufferRecv = eigen::CColX(0);
+    eigen::RColX mBufferSend = eigen::RColX(0);
+    eigen::RColX mBufferRecv = eigen::RColX(0);
 };
 
 #endif /* MessageRank_hpp */

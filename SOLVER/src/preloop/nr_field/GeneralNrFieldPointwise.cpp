@@ -1,5 +1,5 @@
 //
-//  NrFieldPointwise.cpp
+//  GeneralNrFieldPointwise.cpp
 //  AxiSEM3D
 //
 //  Created by Kuangdai Leng on 3/15/20.
@@ -8,11 +8,11 @@
 
 //  pointwise Nr(s,z)
 
-#include "NrFieldPointwise.hpp"
+#include "GeneralNrFieldPointwise.hpp"
 #include "NetCDF_Reader.hpp"
 
 // constructor
-NrFieldPointwise::NrFieldPointwise(const std::string &fname, double factor,
+GeneralNrFieldPointwise::GeneralNrFieldPointwise(const std::string &fname, double factor,
                                    double distTolExact):
 mFilename(fname), mFactor(factor), mDistTolExact(distTolExact) {
     // rtree
@@ -35,20 +35,17 @@ mFilename(fname), mFactor(factor), mDistTolExact(distTolExact) {
 }
 
 // get nr by (s, z)
-eigen::IColX NrFieldPointwise::getNrAtPoints(const eigen::DMatX2_RM &sz) const {
-    eigen::IColX result(sz.rows());
-    for (int ip = 0; ip < sz.rows(); ip++) {
-        // get from r-tree without distance limit
-        double max = std::numeric_limits<double>::max();
-        int nr = mRTree->compute(sz.row(ip), 4, max, 0, mDistTolExact);
-        // apply multiplication factor
-        result(ip) = (int)round(nr * mFactor);
-    }
-    return result;
+int GeneralNrFieldPointwise::getNrAtPoint(const eigen::DCol2 &sz) const {
+    // get from r-tree without distance limit
+    double max = std::numeric_limits<double>::max();
+    int nr = mRTree->compute(sz, 4, max, 0, mDistTolExact);
+    // apply multiplication factor
+    nr = (int)round(nr * mFactor);
+    return nr;
 }
 
 // verbose
-std::string NrFieldPointwise::verbose() const {
+std::string GeneralNrFieldPointwise::verbose() const {
     std::stringstream ss;
     // statistics for verbose
     const eigen::IColX &controlNr = mRTree->getAllValues();

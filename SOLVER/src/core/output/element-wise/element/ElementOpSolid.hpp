@@ -12,8 +12,6 @@
 #define ElementOpSolid_hpp
 
 #include "ElementOp.hpp"
-#include "SolidElement.hpp"
-#include "Point.hpp"
 
 class ElementOpSolid: public ElementOp {
 public:
@@ -24,58 +22,18 @@ public:
     
     
     /////////////////////////// setup ///////////////////////////
-    // set element
-    void setElement(const std::shared_ptr<SolidElement> &element) {
-        mElement = element;
-    }
-    
     // set in group
     void setInGroup(int dumpIntv, const channel::solid::ChannelOptions &chops,
                     int nphis);
-    
-    
-    /////////////////////////// get sizes ///////////////////////////
-    // get na
-    int getNa(int nphis) const {
-        if (nphis == 0) {
-            return mElement->getNr();
-        } else {
-            return nphis;
-        }
-    }
-    
-    // get nu_1
-    int getNu_1() const {
-        return mElement->getNu_1();
-    }
-    
-    // get element tag
-    int getElementTag() const {
-        return mElement->getQuadTag();
-    }
-    
-    // get coords
-    eigen::DRowX getCoords() const {
-        eigen::DRowX sz(mIPnts.size() * 2);
-        for (int ip = 0; ip < mIPnts.size(); ip++) {
-            sz.block(0, ip * 2, 1, 2) =
-            mElement->getPoint(mIPnts[ip]).getCoords();
-        }
-        return sz;
-    }
-    
     
     /////////////////////////// record ///////////////////////////
 public:
     // record
     void
     record(int bufferLine, const channel::solid::ChannelOptions &chops,
-           const eigen::CMatXX &expIAlphaPhi);
+           eigen::CMatXX &expIAlphaPhi, bool hasWindows);
     
 private:
-    // element
-    std::shared_ptr<SolidElement> mElement = nullptr;
-    
     // buffer
     eigen::RTensor4 mBufferU;
     eigen::RTensor4 mBufferG;

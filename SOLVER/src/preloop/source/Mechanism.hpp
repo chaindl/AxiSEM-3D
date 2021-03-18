@@ -63,7 +63,7 @@ public:
     // release element source
     void
     release(const eigen::DMat33 &Qzsp, bool sourceOnAxis,
-            const eigen::DRowN &inplaneFactor, double phi,
+            const eigen::DRowN &inplaneFactor, int m, double phi,
             const Quad &quad, std::unique_ptr<STF> &stf, Domain &domain) const;
     
     // verbose

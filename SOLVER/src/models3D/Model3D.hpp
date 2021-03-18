@@ -57,11 +57,11 @@ protected:
     
     ////////////////////////////// static //////////////////////////////
     // compute spz on element
-    static eigen::DMatX3 computeElemSPZ(const Quad &quad,
+    static eigen::DMatX3 computeElemSPZ(const Quad &quad, const int m,
                                         bool undulated = false);
     
     // compute spz on edge
-    static eigen::DMatX3 computeEdgeSPZ(const Quad &quad, int edge);
+    static eigen::DMatX3 computeEdgeSPZ(const Quad &quad, int edge, const int m);
     
     
     // check inplane scope

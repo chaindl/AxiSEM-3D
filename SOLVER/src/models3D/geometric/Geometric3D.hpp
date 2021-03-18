@@ -37,7 +37,7 @@ protected:
     
     // set undulation to quad
     virtual void setUndulationToQuad(const eigen::DColX &undulation,
-                                     Quad &quad) const;
+                                     Quad &quad, const int m) const;
     
 public:
     // get undulation on points

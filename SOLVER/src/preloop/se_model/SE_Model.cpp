@@ -31,8 +31,7 @@
 #include "Domain.hpp"
 // measure
 #include "Element.hpp"
-#include "SolidPoint.hpp"
-#include "FluidPoint.hpp"
+#include "Point.hpp"
 #include "point_time.hpp"
 #include "io.hpp"
 #include <fstream>
@@ -41,9 +40,11 @@
 // wavefield scanning
 #include "vicinity.hpp"
 
+class NrField;
+
 // step 1: constructor
 SE_Model::
-SE_Model(const ExodusMesh &exodusMesh,
+SE_Model(const ExodusMesh &exodusMesh, const NrField &nrField,
          const ABC &abc, const LocalMesh &localMesh,
          const std::vector<std::shared_ptr<const Model3D>> &models3D):
 mDistToleranceMesh(exodusMesh.getGlobalVariable("dist_tolerance")) {
@@ -61,7 +62,7 @@ mDistToleranceMesh(exodusMesh.getGlobalVariable("dist_tolerance")) {
     int nquad = (int)(localMesh.mL2G_Element.rows());
     mQuads.reserve(nquad);
     for (int iquad = 0; iquad < nquad; iquad++) {
-        mQuads.push_back(Quad(exodusMesh, localMesh, iquad));
+        mQuads.push_back(Quad(exodusMesh, localMesh, nrField, iquad));
     }
     timer::gPreloopTimer.ended("Generating Quads");
     
@@ -226,12 +227,11 @@ void SE_Model::release(const ABC &abc, const LocalMesh &localMesh,
     for (int icom = 0; icom < localMesh.mCommProc.size(); icom++) {
         // create and add message on a single rank
         int rankOther = localMesh.mCommProc[icom];
-        std::vector<MessageRank::MeshPoint> meshPoints;
+        std::vector<MessageRank::MeshWindowSum> meshPoints;
         for (int igll: localMesh.mCommMyGLL[icom]) {
-            meshPoints.push_back({
+            meshPoints.push_back(std::make_tuple(
                 mGLLPoints[igll].getGlobalTag(),
-                mGLLPoints[igll].getSolidPoint(),
-                mGLLPoints[igll].getFluidPoint()});
+                mGLLPoints[igll].getPoint()->getWindowSums()));
         }
         std::unique_ptr<MessageRank> msgRank =
         std::make_unique<MessageRank>(rankOther, meshPoints);
@@ -266,24 +266,14 @@ measureCost(const ExodusMesh &exodusMesh, const LocalMesh &localMesh,
     
     // point signature
     auto pointSign = [this](int igll) -> std::string {
-        std::shared_ptr<SolidPoint> sp = mGLLPoints[igll].getSolidPoint();
-        std::shared_ptr<FluidPoint> fp = mGLLPoints[igll].getFluidPoint();
-        std::string psign;
-        if (sp && fp) {
-            // on solid-fluid boundary
-            psign = sp->costSignature() + "+" + fp->costSignature();
-        } else {
-            psign = sp ? sp->costSignature() : fp->costSignature();
-        }
-        return psign;
+        std::shared_ptr<const Point> p = mGLLPoints[igll].getPoint();
+        return p->costSignature();
     };
     
     // point cost
     auto pointCost = [this, &timeScheme](int igll, int count) -> double {
-        std::shared_ptr<SolidPoint> sp = mGLLPoints[igll].getSolidPoint();
-        std::shared_ptr<FluidPoint> fp = mGLLPoints[igll].getFluidPoint();
-        return ((sp ? point_time::measure(*sp, count, timeScheme) : 0.) +
-                (fp ? point_time::measure(*fp, count, timeScheme) : 0.));
+        std::shared_ptr<Point> p = mGLLPoints[igll].getPoint();
+        return point_time::measure(*p, count, timeScheme);
     };
     
     
@@ -542,20 +532,15 @@ eigen::DRow3 SE_Model::undulatedToReference(const eigen::DRow3 &spzUnd) const {
 
 // form inplane RTree
 void SE_Model::formInplaneRTree() {
-    mRTreeFluid = std::make_unique<RTreeND<2, 1, int>>();
-    mRTreeSolid = std::make_unique<RTreeND<2, 1, int>>();
+    mRTreeQuads = std::make_unique<RTreeND<2, 1, int>>();
     for (int iquad = 0; iquad < mQuads.size(); iquad++) {
         const eigen::DCol2 &sz = mQuads[iquad].getNodalSZ().rowwise().mean();
-        if (mQuads[iquad].fluid()) {
-            mRTreeFluid->addLeaf(sz, iquad);
-        } else {
-            mRTreeSolid->addLeaf(sz, iquad);
-        }
+        mRTreeQuads->addLeaf(sz, iquad);
     }
 }
 
 // locate inplane
-int SE_Model::locateInplane(const eigen::DCol2 &sz, bool inFluid) const {
+int SE_Model::locateInplane(const eigen::DCol2 &sz, double phi, bool inFluid) const {
     // mesh range
     if ((sz(0) < mRangeS(0) || sz(0) > mRangeS(1)) ||
         (sz(1) < mRangeZ(0) || sz(1) > mRangeZ(1))) {
@@ -573,17 +558,13 @@ int SE_Model::locateInplane(const eigen::DCol2 &sz, bool inFluid) const {
     std::vector<Eigen::Matrix<int, 1, 1>> vals;
     // one point is shared by at most 6 elements
     const int nNear = 6;
-    if (inFluid) {
-        mRTreeFluid->query(sz, nNear, dists, vals);
-    } else {
-        mRTreeSolid->query(sz, nNear, dists, vals);
-    }
+    mRTreeQuads->query(sz, nNear, dists, vals);
     
     // locate inplane
     static eigen::DCol2 xieta;
     for (int iq = 0; iq < vals.size(); iq++) {
         int iquad = vals[iq](0);
-        if (mQuads[iquad].inverseMapping(sz, xieta)) {
+        if (mQuads[iquad].inverseMapping(sz, xieta) && (mQuads[iquad].isFluid(phi) == inFluid)) {
             return iquad;
         }
     }
@@ -621,21 +602,10 @@ void SE_Model::initScanningOnPoints(bool vertexOnly) const {
                 quad.getElement()->getPoint(ipnt).enableScanning();
             }
         }
-        // disable fluid points on solid-fluid boundary
-        for (const GLLPoint &point: mGLLPoints) {
-            if (point.getSolidPoint() && point.getFluidPoint()) {
-                point.getFluidPoint()->disableScanning();
-            }
-        }
     } else {
         // enable all vertex points
         for (const GLLPoint &point: mGLLPoints) {
-            if (point.getSolidPoint()) {
-                point.getSolidPoint()->enableScanning();
-            } else {
-                // only enable fluid if not on solid-fluid boundary
-                point.getFluidPoint()->enableScanning();
-            }
+            point.getPoint()->enableScanning();
         }
     }
 }

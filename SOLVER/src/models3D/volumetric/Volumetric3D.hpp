@@ -64,7 +64,7 @@ protected:
                                      const std::vector<ReferenceKind> &refKinds,
                                      const eigen::IMatXX &inScopes,
                                      const eigen::DMatXX &propValues,
-                                     Quad &quad) const;
+                                     Quad &quad, const int m) const;
     
     
     ////////////////////////////// static //////////////////////////////

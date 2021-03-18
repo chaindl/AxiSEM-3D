@@ -23,6 +23,7 @@ class ExodusMesh;
 class ABC;
 class LocalMesh;
 class Model3D;
+class NrField;
 
 // components
 #include "Quad.hpp"
@@ -39,7 +40,7 @@ class Geometric3D;
 class SE_Model {
 public:
     // step 1: constructor
-    SE_Model(const ExodusMesh &exodusMesh,
+    SE_Model(const ExodusMesh &exodusMesh, const NrField &NrField,
              const ABC &abc, const LocalMesh &localMesh,
              const std::vector<std::shared_ptr<const Model3D>> &models3D);
     
@@ -71,7 +72,7 @@ public:
     void formInplaneRTree();
     
     // locate inplane
-    int locateInplane(const eigen::DCol2 &sz, bool inFluid) const;
+    int locateInplane(const eigen::DCol2 &sz, double phi, bool inFluid) const;
     
     // compute inplane factor
     eigen::DRowN computeInplaneFactor(const eigen::DCol2 &sz, int iquad) const;
@@ -123,8 +124,7 @@ private:
     eigen::DCol2 mRangeT = eigen::DCol2::Zero();
     
     // inplane
-    std::unique_ptr<RTreeND<2, 1, int>> mRTreeFluid = nullptr;
-    std::unique_ptr<RTreeND<2, 1, int>> mRTreeSolid = nullptr;
+    std::unique_ptr<RTreeND<2, 1, int>> mRTreeQuads = nullptr;
 };
 
 #endif /* SE_Model_hpp */

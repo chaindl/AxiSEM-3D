@@ -12,7 +12,6 @@
 #define StationFluid_hpp
 
 #include "Station.hpp"
-class FluidElement;
 
 class StationFluid: public Station {
 public:
@@ -23,31 +22,21 @@ public:
         // nothing
     }
     
-    
     /////////////////////////// setup ///////////////////////////
-    // set element
-    void setElement(const std::shared_ptr<FluidElement> &element,
-                    const eigen::DRowN &weights);
-    
     // set in group
     void setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops);
-    
-    
+
     /////////////////////////// record ///////////////////////////
 public:
     // record
     void record(int bufferLine, const channel::fluid::ChannelOptions &chops);
     
 private:
-    // element
-    std::shared_ptr<FluidElement> mElement = nullptr;
-    
     // buffer
     eigen::RMatX1_RM mBufferX = eigen::RMatX1_RM(0, 1);
     eigen::RMatX3_RM mBufferU = eigen::RMatX3_RM(0, 3);
     eigen::RMatX1_RM mBufferP = eigen::RMatX1_RM(0, 1);
     eigen::RMatX1_RM mBufferD = eigen::RMatX1_RM(0, 1);
-    
     
     /////////////////////////// process ///////////////////////////
 public:
@@ -60,6 +49,7 @@ private:
     // process 1: rotate
     void rotate(int bufferLine, const channel::fluid::ChannelOptions &chops);
     
+    bool mMajorityDisplInRTZ;
     
     ////////////////////////////////////////
     //////////////// static ////////////////

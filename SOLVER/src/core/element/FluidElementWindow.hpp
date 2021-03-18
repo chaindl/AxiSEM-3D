@@ -8,14 +8,15 @@
 
 //  fluid spectral element
 
-#ifndef FluidElement_hpp
-#define FluidElement_hpp
+#ifndef FluidElementWindow_hpp
+#define FluidElementWindow_hpp
 
-#include "Element.hpp"
+#include "ElementWindow.hpp"
 
 // point
 #include <array>
-class FluidPoint;
+class PointWindow;
+class FluidPointWindow;
 
 // material
 #include "Acoustic.hpp"
@@ -23,104 +24,87 @@ class FluidPoint;
 // output
 #include "channel.hpp"
 
-class FluidElement: public Element {
+class FluidElementWindow: public ElementWindow {
 public:
     // constructor
-    FluidElement(int quadTag, std::unique_ptr<const GradQuad> &grad,
-                 std::unique_ptr<const PRT> &prt,
-                 std::unique_ptr<const Acoustic> &acoustic,
-                 const std::array<std::shared_ptr<FluidPoint>,
-                 spectral::nPEM> &points);
+    FluidElementWindow(std::unique_ptr<const GradQuad> &grad,
+                       std::unique_ptr<const PRT> &prt,
+                       std::unique_ptr<const Acoustic> &acoustic,
+                       const std::array<std::shared_ptr<FluidPointWindow>, spectral::nPEM> &pointWindows, 
+                       std::array<eigen::RMatX2, 2> &overlapPhi);
     
     // copy constructor
-    FluidElement(const FluidElement &other);
+    FluidElementWindow(const FluidElementWindow &other);
     
 private:
     // construct derived
     void constructDerived();
     
 public:
-    // type info
+    /////////////////////////// info //////////////////////////
     std::string typeInfo() const;
+    std::string mediumInfo() const {return "FLUID";};
+    int getMaxNrFromPoints() const;
+    bool isFluid() const {return true;};
+    int getDimStrain() const {return spectral::nPEM * 3;};
     
-    // medium info
-    std::string mediumInfo() const {
-        return "FLUID";
-    }
-    
-    
-    /////////////////////////// point ///////////////////////////
-    // get point
-    Point &getPoint(int ipnt) const;
-    
+    /////////////////////////// pointer access //////////////////////////
+    FluidElementWindow &getFluidElementWindow() {
+        return *this;
+    };
+    PointWindow &getPointWindow(int inpt) const;
     
     /////////////////////////// time loop ///////////////////////////
-    // collect displacement from points
-    virtual void
-    collectDisplFromPoints(eigen::vec_ar1_CMatPP_RM &displElem) const;
+private:
+    // collect displacement from points (only called internally by displToStrain)
+    void collectDisplFromPointWindows(eigen::vec_ar1_CMatPP_RM &displElem) const;
+    // scatter stiffness to points (only called internally by stressToStiffness)
+    void addStiffToPointWindows(eigen::vec_ar1_CMatPP_RM &stiffElem) const;
     
+public:
     // displacement to stiffness
-    void displToStiff(const eigen::vec_ar1_CMatPP_RM &displElem,
-                      eigen::vec_ar1_CMatPP_RM &stiffElem) const;
+    void displToStrain() const;
+    void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform) const;
+    void getStrainForInterp(eigen::RColX &strain, const int side, const int dim) const;
+    void addOverlapToStrain(const eigen::RColX &strain, const int side, const int dim) const;
+    void strainToStress() const;
+    void transformStressToFourier(const std::shared_ptr<const CoordTransform> &transform) const;
+    void stressToStiffness() const;
     
-    // add stiffness to points
-    // allow a derived class to change stiffElem (no const)
-    virtual void
-    addStiffToPoints(eigen::vec_ar1_CMatPP_RM &stiffElem) const;
-    
-    // compute stiffness term
-    void computeStiff() const;
-    
-    // measure cost
-    double measure(int count) const;
-    
-    
+    // for measuring cost
+    void randomPointWindowsDispl() const;
+    void resetPointWindowsToZero() const;
+  
     /////////////////////////// source ///////////////////////////
-    // prepare pressure source
-    void preparePressureSource() const;
     
-    // add pressure source
+    void preparePressureSource() const;
     void addPressureSource(const eigen::CMatXN &pressure,
                            int nu_1_pressure) const;
     
-    
     /////////////////////////// wavefield output ///////////////////////////
-    // prepare wavefield output
-    void prepareWavefieldOutput(const channel::fluid::ChannelOptions &chops,
-                                bool enforceCoordTransform);
     
-    // chi field
+    bool prepareWavefieldOutput(const channel::fluid::ChannelOptions &chops);
+    
+    // get fields
     void getChiField(eigen::CMatXN &chi) const;
-    
-    // displ field
-    void getDisplField(eigen::CMatXN3 &displ) const {
-        getDisplField(displ, displInRTZ());
-    }
-    
-    // displ field
-    void getDisplField(eigen::CMatXN3 &displ, bool needRTZ) const;
-    
-    // pressure field
+    void getDisplField(eigen::CMatXN3 &displ, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
     void getPressureField(eigen::CMatXN &pressure) const;
-    
-    // delta field
     void getDeltaField(eigen::CMatXN &delta) const;
     
     // displ crd
-    inline bool displInRTZ() const {
+    bool displInRTZ() const {
         return (bool)mPRT;
     }
-    
     
 private:
     // material
     const std::unique_ptr<const Acoustic> mAcoustic;
     
-    // 1D element in Fourier space
+    // 1D element window without overlap in Fourier space
     const bool mInFourier;
     
     // points
-    std::array<std::shared_ptr<FluidPoint>, spectral::nPEM> mPoints;
+    std::array<std::shared_ptr<FluidPointWindow>, spectral::nPEM> mPointWindows;
     
     
     ////////////////////////////////////////

@@ -9,6 +9,7 @@
 //  element output in fluid
 
 #include "ElementOpFluid.hpp"
+#include "Element.hpp"
 
 /////////////////////////// setup ///////////////////////////
 // set in group
@@ -34,10 +35,13 @@ setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops,
     }
     
     // element
-    mElement->prepareWavefieldOutput(chops, true);
+    for (int m = 0; m < mPhiLocal.cols(); m++) {
+        if (!(mPhiLocal.array() >= 0).col(m).any()) continue;
+        mElement->prepareWavefieldOutput(chops, m, true);
+    }
     
     // workspace
-    expandWorkspaceRecord(mElement->getNu_1(), na, chops);
+    expandWorkspaceRecord(mElement->getMaxNu_1(), na, chops);
 }
 
 
@@ -45,29 +49,48 @@ setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops,
 // record
 void ElementOpFluid::
 record(int bufferLine, const channel::fluid::ChannelOptions &chops,
-       const eigen::CMatXX &expIAlphaPhi) {
-    int nu_1 = mElement->getNu_1();
+       eigen::CMatXX &expIAlphaPhi, bool hasWindows) {
     bool needRTZ = (chops.mWCS == channel::WavefieldCS::RTZ);
     
-    if (chops.mNeedBufferX) {
-        mElement->getChiField(sCXXN1);
-        recordToElem<1>(sCXXN1, nu_1, sRXXN1, expIAlphaPhi,
-                        mBufferX, bufferLine);
-    }
-    if (chops.mNeedBufferU) {
-        mElement->getDisplField(sCUXN3, needRTZ);
-        recordToElem<3>(sCUXN3, nu_1, sRUXN3, expIAlphaPhi,
-                        mBufferU, bufferLine);
-    }
-    if (chops.mNeedBufferP) {
-        mElement->getPressureField(sCPXN1);
-        recordToElem<1>(sCPXN1, nu_1, sRPXN1, expIAlphaPhi,
-                        mBufferP, bufferLine);
-    }
-    if (chops.mNeedBufferD) {
-        mElement->getDeltaField(sCDXN1);
-        recordToElem<1>(sCDXN1, nu_1, sRDXN1, expIAlphaPhi,
-                        mBufferD, bufferLine);
+    for (int m = 0; m < mPhiLocal.cols(); m++) {
+        if (!(mPhiLocal.array() >= 0).col(m).any()) continue;
+        
+        int nu_1 = mElement->getWindowNu_1(m);
+        
+        int iphi1 = 0;
+        int nphi = 0;
+        if (hasWindows) {
+            for (int iphi = 0; iphi < mPhiLocal.rows(); iphi++) {
+                if (mPhiLocal(iphi, m) < 0) continue;
+                if (nphi == 0) iphi1 = iphi;
+                eigen::CColX temp(nu_1);
+                eigen_tools::computeTwoExpIAlphaPhi(nu_1, mPhiLocal(iphi, m), temp);
+                expIAlphaPhi.block(0, nphi++, nu_1, 1) = temp;
+            }
+        } else {
+            nphi = (int)expIAlphaPhi.cols();
+        }
+        
+        if (chops.mNeedBufferX) {
+            mElement->getChiField(sCXXN1, m);
+            recordToElem<1>(sCXXN1, nu_1, iphi1, nphi, sRXXN1, expIAlphaPhi,
+                            mBufferX, bufferLine);
+        }
+        if (chops.mNeedBufferU) {
+            mElement->getDisplField(sCUXN3, needRTZ, m);
+            recordToElem<3>(sCUXN3, nu_1, iphi1, nphi, sRUXN3, expIAlphaPhi,
+                            mBufferU, bufferLine);
+        }
+        if (chops.mNeedBufferP) {
+            mElement->getPressureField(sCPXN1, m);
+            recordToElem<1>(sCPXN1, nu_1, iphi1, nphi, sRPXN1, expIAlphaPhi,
+                            mBufferP, bufferLine);
+        }
+        if (chops.mNeedBufferD) {
+            mElement->getDeltaField(sCDXN1, m);
+            recordToElem<1>(sCDXN1, nu_1, iphi1, nphi, sRDXN1, expIAlphaPhi,
+                            mBufferD, bufferLine);
+        }
     }
 }
 

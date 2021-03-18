@@ -8,14 +8,14 @@
 
 //  solid spectral element
 
-#ifndef SolidElement_hpp
-#define SolidElement_hpp
+#ifndef SolidElementWindow_hpp
+#define SolidElementWindow_hpp
 
-#include "Element.hpp"
+#include "ElementWindow.hpp"
 
 // point
 #include <array>
-class SolidPoint;
+class SolidPointWindow;
 
 // material
 #include "Elastic.hpp"
@@ -23,144 +23,106 @@ class SolidPoint;
 // output
 #include "channel.hpp"
 
-class SolidElement: public Element {
+class SolidElementWindow: public ElementWindow {
 public:
     // constructor
-    SolidElement(int quadTag, std::unique_ptr<const GradQuad> &grad,
+    SolidElementWindow(std::unique_ptr<const GradQuad> &grad,
                  std::unique_ptr<const PRT> &prt,
                  std::unique_ptr<const Elastic> &elastic,
-                 const std::array<std::shared_ptr<SolidPoint>,
-                 spectral::nPEM> &points);
+                 const std::array<std::shared_ptr<SolidPointWindow>,
+                 spectral::nPEM> &pointWindows, 
+                 std::array<eigen::RMatX2, 2> overlapPhi);
     
     // copy constructor
-    SolidElement(const SolidElement &other);
+    SolidElementWindow(const SolidElementWindow &other);
     
 private:
     // construct derived
     void constructDerived();
     
 public:
-    // type info
+    /////////////////////////// info //////////////////////////
     std::string typeInfo() const;
+    std::string mediumInfo() const {return "SOLID";};
+    int getMaxNrFromPoints() const;
+    int getDimStrain() const {return spectral::nPEM * 6;};
+    bool elasticInRTZ() const {return mElastic->inRTZ();};
     
-    // medium info
-    std::string mediumInfo() const {
-        return "SOLID";
-    }
-    
-    
-    /////////////////////////// point ///////////////////////////
-    // get point
-    Point &getPoint(int ipnt) const;
-    
+    /////////////////////////// pointer access //////////////////////////
+    SolidElementWindow &getSolidElementWindow() {
+        return *this;
+    };
+    PointWindow &getPointWindow(int inpt) const;
     
     /////////////////////////// time loop ///////////////////////////
-    // collect displacement from points
-    virtual void
-    collectDisplFromPoints(eigen::vec_ar3_CMatPP_RM &displElem) const;
+private:
+    // collect displacement from points (only called internally by displToStrain)
+    void collectDisplFromPointWindows(eigen::vec_ar3_CMatPP_RM &displElem) const;
+    // scatter stiffness to points (only called internally by stressToStiffness)
+    void addStiffToPointWindows(eigen::vec_ar3_CMatPP_RM &stiffElem) const;
     
+public:
     // displacement to stiffness
-    void displToStiff(const eigen::vec_ar3_CMatPP_RM &displElem,
-                      eigen::vec_ar3_CMatPP_RM &stiffElem) const;
+    void displToStrain() const;
+    void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform) const;
+    void getStrainForInterp(eigen::RColX &strain, const int side, const int dim) const;
+    void addOverlapToStrain(const eigen::RColX &strain, const int side, const int dim) const;
+    void strainToStress() const;
+    void transformStressToFourier(const std::shared_ptr<const CoordTransform> &transform) const;
+    void stressToStiffness() const;
     
-    // add stiffness to points
-    // allow a derived class to change stiffElem (no const)
-    virtual void
-    addStiffToPoints(eigen::vec_ar3_CMatPP_RM &stiffElem) const;
-    
-    // compute stiffness term
-    void computeStiff() const;
-    
-    // measure cost
-    double measure(int count) const;
-    
+    // for measuring cost
+    void randomPointWindowsDispl() const;
+    void resetPointWindowsToZero() const;
     
     /////////////////////////// source ///////////////////////////
-    // prepare force source (force given in SPZ)
+    // force given in SPZ
     void prepareForceSource() const;
-    
-    // add force source (force given in SPZ)
     void addForceSource(const eigen::CMatXN3 &force,
                         int nu_1_force) const;
-    
-    // prepare moment source (moment tensor given in SPZ)
+                        
+    // moment tensor given in SPZ
     void prepareMomentSource() const;
-    
-    // add moment source (moment tensor given in SPZ)
     void addMomentSource(const eigen::CMatXN6 &moment,
-                         int nu_1_moment) const;
+                         int nu_1_moment,
+                         const std::shared_ptr<const CoordTransform> &transform) const;
     
     
     /////////////////////////// wavefield output ///////////////////////////
     // prepare wavefield output
-    void prepareWavefieldOutput(const channel::solid::ChannelOptions &chops,
-                                bool enforceCoordTransform);
+    bool prepareWavefieldOutput(const channel::solid::ChannelOptions &chops);
     
-    // displ field
-    void getDisplField(eigen::CMatXN3 &displ) const {
-        getDisplField(displ, displInRTZ());
-    }
-    
-    // displ field
-    void getDisplField(eigen::CMatXN3 &displ, bool needRTZ) const;
-    
-    // nabla field
-    void getNablaField(eigen::CMatXN9 &nabla) const {
-        getNablaField(nabla, nablaInRTZ());
-    }
-    
-    // nabla field
-    void getNablaField(eigen::CMatXN9 &nabla, bool needRTZ) const;
-    
-    // strain field
-    void getStrainField(eigen::CMatXN6 &strain) const {
-        getStrainField(strain, strainInRTZ());
-    }
-    
-    // strain field
-    void getStrainField(eigen::CMatXN6 &strain, bool needRTZ) const;
-    
-    // curl field
-    void getCurlField(eigen::CMatXN3 &curl) const {
-        getCurlField(curl, curlInRTZ());
-    }
-    
-    // curl field
-    void getCurlField(eigen::CMatXN3 &curl, bool needRTZ) const;
-    
-    // stress field
-    void getStressField(eigen::CMatXN6 &stress) const {
-        getStressField(stress, stressInRTZ());
-    }
-    
-    // stress field
-    void getStressField(eigen::CMatXN6 &stress, bool needRTZ) const;
+    // get fields
+    void getDisplField(eigen::CMatXN3 &displ, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
+    void getNablaField(eigen::CMatXN9 &nabla, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
+    void getStrainField(eigen::CMatXN6 &strain, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
+    void getCurlField(eigen::CMatXN3 &curl, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
+    void getStressField(eigen::CMatXN6 &stress, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
     
     // displ crd
-    inline bool displInRTZ() const {
+    bool displInRTZ() const {
         return false;
     }
     
     // nabla crd
-    inline bool nablaInRTZ() const {
+    bool nablaInRTZ() const {
         return (bool)mPRT;
     }
     
     // strain crd
-    inline bool strainInRTZ() const {
+    bool strainInRTZ() const {
         return nablaInRTZ();
     }
     
     // curl crd
-    inline bool curlInRTZ() const {
+    bool curlInRTZ() const {
         return nablaInRTZ();
     }
     
     // stress crd
-    inline bool stressInRTZ() const {
+    bool stressInRTZ() const {
         return strainInRTZ() || mElastic->inRTZ();
     }
-    
     
 private:
     // material
@@ -170,7 +132,7 @@ private:
     const bool mInFourier;
     
     // points
-    std::array<std::shared_ptr<SolidPoint>, spectral::nPEM> mPoints;
+    std::array<std::shared_ptr<SolidPointWindow>, spectral::nPEM> mPointWindows;
     
     // stress buffer
     // stress cannot be recomputed with attenuation

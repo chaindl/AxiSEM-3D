@@ -51,6 +51,13 @@ public:
                                  "ocean load on fluid point.");
     }
     
+    // compute accel in-place for fluid
+    void computeAccel(eigen::RColX &stiff1) const {
+        throw std::runtime_error("MassOceanLoad1D::computeAccel || "
+                                 "Incompatible types: "
+                                 "ocean load on fluid point.");
+    }
+    
     // compute accel in-place for solid
     void computeAccel(eigen::CMatX3 &stiff3) const {
         // copy s
@@ -61,6 +68,22 @@ public:
         stiff3.col(0) = (mIMH_CosT2_p_IMV_SinT2 * sStiff3_col0.topRows(nu_1) +
                          mIMV_m_IMH_x_CosT_SinT * stiff3.col(2));
         stiff3.col(2) = (mIMV_m_IMH_x_CosT_SinT * sStiff3_col0.topRows(nu_1) +
+                         mIMH_SinT2_p_IMV_CosT2 * stiff3.col(2));
+        
+        // phi
+        stiff3.col(1) *= mIMH;
+    }
+    
+    // compute accel in-place for solid
+    void computeAccel(eigen::RMatX3 &stiff3) const {
+        // copy s
+        int nu_1 = (int)stiff3.rows();
+        sStiff3_col0.topRows(nu_1) = stiff3.col(0).cast<numerical::ComplexR>();
+        
+        // s, z
+        stiff3.col(0) = (mIMH_CosT2_p_IMV_SinT2 * sStiff3_col0.topRows(nu_1).real() +
+                         mIMV_m_IMH_x_CosT_SinT * stiff3.col(2));
+        stiff3.col(2) = (mIMV_m_IMH_x_CosT_SinT * sStiff3_col0.topRows(nu_1).real() +
                          mIMH_SinT2_p_IMV_CosT2 * stiff3.col(2));
         
         // phi

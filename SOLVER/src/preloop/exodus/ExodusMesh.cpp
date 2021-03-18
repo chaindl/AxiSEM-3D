@@ -292,6 +292,50 @@ void ExodusMesh::readBcastCoordinates(const NetCDF_Reader &reader,
     mpi::enterWorld();
 }
 
+double ExodusMesh::computeAveGLLSpacing() const {
+    int nNodePP = getNumNodes() / mpi::nproc();
+    int nNodeOnMe = nNodePP;
+    if (mpi::rank() == mpi::nproc() - 1) {
+        nNodeOnMe += getNumNodes() % mpi::nproc();
+    }
+    timer::gPreloopTimer.begin("Generating node-quad reference list");
+    std::vector<std::vector<int>> refQuads;
+    refQuads.resize(getNumNodes());
+    for (int iquad = 0; iquad < getNumQuads(); iquad++) {
+        refQuads[mySuperOnly().mConnectivity(iquad, 0)].push_back(iquad);
+        refQuads[mySuperOnly().mConnectivity(iquad, 1)].push_back(iquad);
+        refQuads[mySuperOnly().mConnectivity(iquad, 2)].push_back(iquad);
+        refQuads[mySuperOnly().mConnectivity(iquad, 3)].push_back(iquad);
+    }
+    timer::gPreloopTimer.ended("Generating node-quad reference list");
+    // average gll spacing
+    timer::gPreloopTimer.begin("Computing average GLL spacing");
+    double aveGLLSpacing = std::numeric_limits<double>::max();
+    for (int inode = 0; inode < nNodeOnMe; inode++) {
+        double nodeAveGLLSpacing = 0;
+        int inodeG = inode + mpi::rank() * nNodePP;
+        for (int iquad: refQuads[inodeG]) {
+            const eigen::DRow2 &sz0 = mySuperOnly().mNodalCoords
+            .row(mySuperOnly().mConnectivity(iquad, 0));
+            const eigen::DRow2 &sz1 = mySuperOnly().mNodalCoords
+            .row(mySuperOnly().mConnectivity(iquad, 1));
+            const eigen::DRow2 &sz2 = mySuperOnly().mNodalCoords
+            .row(mySuperOnly().mConnectivity(iquad, 2));
+            const eigen::DRow2 &sz3 = mySuperOnly().mNodalCoords
+            .row(mySuperOnly().mConnectivity(iquad, 3));
+            nodeAveGLLSpacing += (sz0 - sz1).norm();
+            nodeAveGLLSpacing += (sz1 - sz2).norm();
+            nodeAveGLLSpacing += (sz2 - sz3).norm();
+            nodeAveGLLSpacing += (sz3 - sz0).norm();
+        }
+        nodeAveGLLSpacing /= refQuads[inodeG].size() * 4 * spectral::nPol;
+        aveGLLSpacing = std::min(nodeAveGLLSpacing, aveGLLSpacing);
+    }
+    timer::gPreloopTimer.ended("Computing average GLL spacing");
+    aveGLLSpacing = mpi::min(aveGLLSpacing);
+    return aveGLLSpacing;
+}
+
 // side sets
 void ExodusMesh::readBcastSideSets(const NetCDF_Reader &reader,
                                    double &memSup, double &memAll) {
@@ -633,8 +677,7 @@ void ExodusMesh::readEllipticity(const NetCDF_Reader &reader,
 
 ///////////////// nr field /////////////////
 // form Nr at nodes
-void ExodusMesh::formNrAtNodes(const NrField &nrField,
-                               bool boundByInplane, bool useLuckyNumbers) {
+void ExodusMesh::formNrAtNodes(const NrField &nrField) {
     // partitioning task on ranks
     int nNodePP = getNumNodes() / mpi::nproc();
     int nNodeOnMe = nNodePP;
@@ -647,115 +690,51 @@ void ExodusMesh::formNrAtNodes(const NrField &nrField,
     // compute Nr on ranks
     timer::gPreloopTimer.begin("Computing Nr on ranks");
     const eigen::DMatX2_RM &crdMe = mySuperOnly().mNodalCoords(idR, Eigen::all);
-    eigen::IColX nrMe = nrField.getNrAtPoints(crdMe);
-    // check Nr >= 1
-    Eigen::Index loc = -1;
-    int minNr = nrMe.minCoeff(&loc);
-    if (minNr < 1) {
-        std::stringstream ss;
-        ss << "ExodusMesh::formNrAtNodes || Nr must be positive. || ";
-        ss << "Nr = " << minNr << " || Location (s, z) = ";
-        ss << bstring::range(crdMe.row(loc)(0), crdMe.row(loc)(1), '(', ')');
-        throw std::runtime_error(ss.str());
+    std::vector<std::vector<std::pair<double, double>>> nrMe(crdMe.rows());
+    for (int i = 0; i < crdMe.rows(); i++) {
+        eigen::DCol2 sz = crdMe.row(i).transpose();
+        nrMe[i] = nrField.makeNodalNrAtPoint(sz);
     }
     timer::gPreloopTimer.ended("Computing Nr on ranks");
-    
-    // bound by inplane resolution
-    if (boundByInplane) {
-        timer::gPreloopTimer.begin("Bounding Nr by inplane resolution");
-        // node-quad reference list
-        timer::gPreloopTimer.begin("Generating node-quad reference list");
-        std::vector<std::vector<int>> refQuads;
-        refQuads.resize(getNumNodes());
-        for (int iquad = 0; iquad < getNumQuads(); iquad++) {
-            refQuads[mySuperOnly().mConnectivity(iquad, 0)].push_back(iquad);
-            refQuads[mySuperOnly().mConnectivity(iquad, 1)].push_back(iquad);
-            refQuads[mySuperOnly().mConnectivity(iquad, 2)].push_back(iquad);
-            refQuads[mySuperOnly().mConnectivity(iquad, 3)].push_back(iquad);
-        }
-        timer::gPreloopTimer.ended("Generating node-quad reference list");
-        
-        // average gll spacing
-        timer::gPreloopTimer.begin("Computing average GLL spacing");
-        for (int inode = 0; inode < nNodeOnMe; inode++) {
-            double aveGLLSpacing = 0.;
-            int inodeG = inode + mpi::rank() * nNodePP;
-            for (int iquad: refQuads[inodeG]) {
-                const eigen::DRow2 &sz0 = mySuperOnly().mNodalCoords
-                .row(mySuperOnly().mConnectivity(iquad, 0));
-                const eigen::DRow2 &sz1 = mySuperOnly().mNodalCoords
-                .row(mySuperOnly().mConnectivity(iquad, 1));
-                const eigen::DRow2 &sz2 = mySuperOnly().mNodalCoords
-                .row(mySuperOnly().mConnectivity(iquad, 2));
-                const eigen::DRow2 &sz3 = mySuperOnly().mNodalCoords
-                .row(mySuperOnly().mConnectivity(iquad, 3));
-                aveGLLSpacing += (sz0 - sz1).norm();
-                aveGLLSpacing += (sz1 - sz2).norm();
-                aveGLLSpacing += (sz2 - sz3).norm();
-                aveGLLSpacing += (sz3 - sz0).norm();
-            }
-            aveGLLSpacing /= refQuads[inodeG].size() * 4 * spectral::nPol;
-            // upper bound of Nr
-            double circ = 2. * numerical::dPi * crdMe(inode, 0);
-            int upperNr = std::max((int)round(circ / aveGLLSpacing), 1);
-            // for axial nodes, 0 is not enough
-            if (crdMe(inode, 0) < getGlobalVariable("dist_tolerance")) {
-                // Q: Use 3 or 5 here? This is very tricky.
-                // A: An axial moment tensor requires nu=2 (nr=5), but source
-                //    is added at element level and handled by non-axial nodes;
-                //    therefore, 3 is enough for an axial GLL point, as used in
-                //    the old code. However, here we implement nr on the nodes,
-                //    and thus 5 must be used on the axis so that the
-                //    "interpolated" nr on a non-axial GLL point can reach 5.
-                upperNr = 5;
-            }
-            nrMe(inode) = std::min(nrMe(inode), upperNr);
-        }
-        timer::gPreloopTimer.ended("Computing average GLL spacing");
-        timer::gPreloopTimer.ended("Bounding Nr by inplane resolution");
-    }
-    
-    // lucky numbers
-    if (useLuckyNumbers) {
-        timer::gPreloopTimer.begin("Rounding Nr up to FFTW lucky numbers");
-        nrMe = nrMe.unaryExpr([](int nr) {
-            return NrField::nextLuckyNumber(nr);
-        });
-        timer::gPreloopTimer.ended("Rounding Nr up to FFTW lucky numbers");
-    }
     
     // assemble Nr on ranks
     timer::gPreloopTimer.begin("Assembling Nr on ranks");
     // allocate
-    mySuperOnly().mNodalNr = eigen::IColX::Zero(getNumNodes());
+    mySuperOnly().mNodalNr.resize(getNumNodes());
     // copy to whole
-    mySuperOnly().mNodalNr(idR, Eigen::all) = nrMe;
-    // assemble by summation
-    mpi::sumEigen(mySuperOnly().mNodalNr);
+    for (int i = 0; i < nrMe.size(); i++) {
+        mySuperOnly().mNodalNr[idR(i)] = nrMe[i];
+    }
+    // assemble
+    mpi::assembleNodal(mySuperOnly().mNodalNr);
+    
     // verbose memory
-    timer::gPreloopTimer.message
-    (eigen_tools::memoryInfo(mySuperOnly().mNodalNr, "nodal Nr (super-only)"));
+    timer::gPreloopTimer.message(memoryInfoNr());
     timer::gPreloopTimer.ended("Assembling Nr on ranks");
 }
 
 // verbose Nr
-std::string ExodusMesh::
-verboseNr(bool boundByInplane, bool useLuckyNumbers) const {
+std::string ExodusMesh::verboseNr(bool boundByInplane) const {
     std::stringstream ss;
     if (mpi::root()) {
-        const eigen::IColX &nodalNr = mySuperOnly().mNodalNr;
-        ss << bstring::boxTitle("Computed Nr on Mesh");
-        ss << bstring::boxEquals(0, 6, "min Nr", nodalNr.minCoeff());
-        ss << bstring::boxEquals(0, 6, "max Nr", nodalNr.maxCoeff());
-        long sum = nodalNr.cast<long>().sum();
-        int mean = (int)round(1. * sum / nodalNr.rows());
-        ss << bstring::boxEquals(0, 6, "ave Nr", mean);
-        ss << bstring::boxEquals(0, 6, "sum Nr", sum);
+        const std::vector<std::vector<std::pair<double, double>>> &nodalNr = mySuperOnly().mNodalNr;
+        int maxNr = 0, minNr = -1, maxWins = 0, sumNr = 0;
+        for (auto &nodeWins: nodalNr) {
+            maxWins = std::max(maxWins, (int)nodeWins.size());
+            for (auto &win: nodeWins) {
+                if (minNr < 0) minNr = (int)round(win.second);
+                minNr = std::min(minNr, (int)round(win.second));
+                maxNr = std::max(maxNr, (int)round(win.second));
+                sumNr += (int)round(win.second);
+            }
+        }
+        ss << bstring::boxTitle("Computed Nr on nodes");
+        ss << bstring::boxEquals(0, 34, "max number of localised Nr windows", maxWins);
+        ss << bstring::boxEquals(0, 34, "min Nr per window", minNr);
+        ss << bstring::boxEquals(0, 34, "max Nr per window", maxNr);
+        ss << bstring::boxEquals(0, 34, "sum Nr (without overlaps)", sumNr);
         if (boundByInplane) {
             ss << "* Nr has been limited by inplane resolution.\n";
-        }
-        if (useLuckyNumbers) {
-            ss << "* Nr has been rounded up to FFTW lucky numbers.\n";
         }
         ss << bstring::boxBaseline() << "\n\n";
     }

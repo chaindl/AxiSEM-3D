@@ -24,11 +24,11 @@
 class ClaytonSolid3D: public ClaytonSolid {
 public:
     // constructor
-    ClaytonSolid3D(const std::shared_ptr<SolidPoint> &sp,
+    ClaytonSolid3D(const std::shared_ptr<SolidPointWindow> &spw,
                    const eigen::DColX &rhoVp, const eigen::DColX &rhoVs,
                    const eigen::DColX &area,
                    const eigen::DMatX3 &unitNormal):
-    ClaytonSolid(sp),
+    ClaytonSolid(spw),
     mRSA(rhoVs.cwiseProduct(area).cast<numerical::Real>()),
     mK(((rhoVp - rhoVs).cwiseProduct(area).cwiseSqrt().asDiagonal()
         * unitNormal).cast<numerical::Real>()) {

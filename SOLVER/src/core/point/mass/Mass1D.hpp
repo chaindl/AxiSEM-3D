@@ -21,13 +21,23 @@ public:
         // nothing
     }
     
-    // compute accel in-place for fluid
+    // compute accel in-place for fluid in Fourier
     void computeAccel(eigen::CColX &stiff1) const {
         stiff1 *= mInvMass;
     }
     
-    // compute accel in-place for solid
+    // compute accel in-place for fluid in Cardinal space
+    void computeAccel(eigen::RColX &stiff1) const {
+        stiff1 *= mInvMass;
+    }
+    
+    // compute accel in-place for solid in Fourier
     void computeAccel(eigen::CMatX3 &stiff3) const {
+        stiff3 *= mInvMass;
+    }
+    
+    // compute accel in-place for solid in Cardinal space
+    void computeAccel(eigen::RMatX3 &stiff3) const {
         stiff3 *= mInvMass;
     }
     

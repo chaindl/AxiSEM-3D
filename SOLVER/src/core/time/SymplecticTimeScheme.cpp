@@ -9,10 +9,12 @@
 //  symplectic time scheme
 
 #include "SymplecticTimeScheme.hpp"
-#include "SolidPoint.hpp"
-#include "FluidPoint.hpp"
+#include "Point.hpp"
 #include "Domain.hpp"
 #include "timer.hpp"
+#include "PointWindow.hpp"
+#include "FluidPointWindow.hpp"
+#include "SolidPointWindow.hpp"
 
 // solve
 void SymplecticTimeScheme::solve() const {
@@ -57,8 +59,7 @@ void SymplecticTimeScheme::solve() const {
         
         // launch
         timers.at("TIME_MARCH").resume();
-        launch(mDomain->getSolidPoints());
-        launch(mDomain->getFluidPoints());
+        launch(mDomain->getPoints());
         timers.at("TIME_MARCH").pause();
         
         // sub iteration
@@ -72,6 +73,11 @@ void SymplecticTimeScheme::solve() const {
             timers.at("BOUNDARIES").resume();
             mDomain->applyBC_BeforeAssemblingStiff();
             timers.at("BOUNDARIES").pause();
+            
+            // point windows => combined point
+            timers.at("WINDOW_INTERPOLATION").resume();
+            mDomain->combinePointWindows();
+            timers.at("WINDOW_INTERPOLATION").pause();
             
             // assemble phase 1: gather + send + recv
             timers.at("MPI_COMM").resume();
@@ -88,25 +94,24 @@ void SymplecticTimeScheme::solve() const {
             mDomain->mpiWaitScatter();
             timers.at("MPI_COMM").pause();
             
-            // boundary conditions after assembling stiffness
-            timers.at("BOUNDARIES").resume();
-            mDomain->applyBC_AfterAssemblingStiff();
-            timers.at("BOUNDARIES").pause();
-            
-            // boundary conditions after computing acceleration
-            timers.at("BOUNDARIES").resume();
-            mDomain->applyBC_AfterComputingAccel();
-            timers.at("BOUNDARIES").pause();
+            // combined point => point windows
+            timers.at("WINDOW_INTERPOLATION").resume();
+            mDomain->separatePointWindows();
+            timers.at("WINDOW_INTERPOLATION").pause();
             
             // stiff => accel
             timers.at("MASS_TERM").resume();
             mDomain->computeStiffToAccel();
             timers.at("MASS_TERM").pause();
             
+            // boundary conditions after computing acceleration
+            timers.at("BOUNDARIES").resume();
+            mDomain->applyBC_AfterComputingAccel();
+            timers.at("BOUNDARIES").pause();
+            
             // update fields
             timers.at("TIME_MARCH").resume();
-            update(mDomain->getSolidPoints(), isub);
-            update(mDomain->getFluidPoints(), isub);
+            update(mDomain->getPoints(), isub);
             timers.at("TIME_MARCH").pause();
         } // end of sub iteration
         
@@ -139,4 +144,33 @@ void SymplecticTimeScheme::solve() const {
     
     // verbose
     verboseEnd("SYMPLECTIC", timers.at("TOTAL").elapsedTotal(), t);
+}
+
+void SymplecticTimeScheme::launch(const std::vector<std::shared_ptr<Point>> &points) const {
+    static const numerical::Real kappa_dt = sKappa[0] * mDt;
+    for (const std::shared_ptr<Point> &point: points) {
+        for (const std::shared_ptr<PointWindow> &pw: point->getWindows()) {
+            if (pw->getFluidPointWindow()) {
+                auto &f = pw->getFluidPointWindow()->getFields();
+                f.mDispl += kappa_dt * f.mVeloc;
+            }
+            if (pw->getSolidPointWindow()) {
+                auto &f = pw->getSolidPointWindow()->getFields();
+                f.mDispl += kappa_dt * f.mVeloc;
+            }
+        }
+    }
+}
+
+// update fields on points
+void SymplecticTimeScheme::update(const std::vector<std::shared_ptr<Point>> &points,
+            int iSubIter) const {
+    const numerical::Real pi_dt = sPi[iSubIter] * mDt;
+    const numerical::Real kappa_dt = sKappa[iSubIter] * mDt;
+    for (const std::shared_ptr<Point> &point: points) {
+        for (const std::shared_ptr<PointWindow> &pw: point->getWindows()) {
+            if (pw->getFluidPointWindow()) update(*pw->getFluidPointWindow(), pi_dt, kappa_dt);
+            if (pw->getSolidPointWindow()) update(*pw->getSolidPointWindow(), pi_dt, kappa_dt);
+        }
+    }
 }

@@ -8,20 +8,20 @@
 
 //  constant Nr(s,z)
 
-#ifndef NrFieldConstant_hpp
-#define NrFieldConstant_hpp
+#ifndef GeneralNrFieldConstant_hpp
+#define GeneralNrFieldConstant_hpp
 
-#include "NrField.hpp"
+#include "GeneralNrField.hpp"
 
-class NrFieldConstant: public NrField {
+class GeneralNrFieldConstant: public GeneralNrField {
 public:
     // constructor
-    NrFieldConstant(int nr): mNr(nr) {
+    GeneralNrFieldConstant(int nr): mNr(nr) {
         // nothing
     }
     
     // get nr by (s, z)
-    eigen::IColX getNrAtPoints(const eigen::DMatX2_RM &sz) const;
+    int getNrAtPoint(const eigen::DCol2 &sz) const;
     
     // verbose
     std::string verbose() const;

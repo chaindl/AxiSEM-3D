@@ -9,46 +9,45 @@
 //  station in solid
 
 #include "StationSolid.hpp"
-#include "SolidElement.hpp"
 #include "geodesy.hpp"
 
 /////////////////////////// setup ///////////////////////////
-// set element
-void StationSolid::
-setElement(const std::shared_ptr<SolidElement> &element,
-           const eigen::DRowN &weights) {
-    // element
-    mElement = element;
-    
-    // base
-    Station::setElement(weights, mElement->getNu_1());
-}
-
 // set in group
 void StationSolid::
 setInGroup(int dumpIntv, const channel::solid::ChannelOptions &chops) {
     // member buffers
     if (chops.mNeedBufferU) {
         mBufferU.resize(dumpIntv, 3);
+        mMajorityDisplInRTZ = mElement->getMajorityDisplInRTZ(mWindowPhis);
     }
     if (chops.mNeedBufferG) {
         mBufferG.resize(dumpIntv, 9);
+        mMajorityNablaInRTZ = mElement->getMajorityNablaInRTZ(mWindowPhis);
     }
     if (chops.mNeedBufferE) {
         mBufferE.resize(dumpIntv, 6);
+        mMajorityStrainInRTZ = mElement->getMajorityStrainInRTZ(mWindowPhis);
     }
     if (chops.mNeedBufferR) {
         mBufferR.resize(dumpIntv, 3);
+        mMajorityCurlInRTZ = mElement->getMajorityCurlInRTZ(mWindowPhis);
     }
     if (chops.mNeedBufferS) {
         mBufferS.resize(dumpIntv, 6);
+        mMajorityStressInRTZ = mElement->getMajorityStressInRTZ(mWindowPhis);
     }
     
     // element
-    mElement->prepareWavefieldOutput(chops, false);
+    for (int m = 0; m < mWindowPhis.size(); m++) {
+        mElement->prepareWavefieldOutput(chops, mWindowPhis[m].first, false);
+    }
     
     // workspace
-    expandWorkspaceRecord(mElement->getNu_1(), chops);
+    int maxNu_1 = 0;
+    for (int m = 0; m < mWindowPhis.size(); m++) {
+        maxNu_1 = std::max(maxNu_1, mElement->getWindowNu_1(mWindowPhis[m].first));
+    }
+    expandWorkspaceRecord(maxNu_1, chops);
     expandWorkspaceProcess(dumpIntv, chops.mNeedBufferE || chops.mNeedBufferS);
 }
 
@@ -57,36 +56,39 @@ setInGroup(int dumpIntv, const channel::solid::ChannelOptions &chops) {
 // record
 void StationSolid::
 record(int bufferLine, const channel::solid::ChannelOptions &chops) {
-    int nu_1 = mElement->getNu_1();
-    // displ
-    if (chops.mNeedBufferU) {
-        mElement->getDisplField(sUXN3);
-        interpolate<3>(sUXN3, sUX3, sU3, nu_1);
-        mBufferU.row(bufferLine) = sU3;
-    }
-    // nabla
-    if (chops.mNeedBufferG) {
-        mElement->getNablaField(sGXN9);
-        interpolate<9>(sGXN9, sGX9, sG9, nu_1);
-        mBufferG.row(bufferLine) = sG9;
-    }
-    // strain
-    if (chops.mNeedBufferE) {
-        mElement->getStrainField(sEXN6);
-        interpolate<6>(sEXN6, sEX6, sE6, nu_1);
-        mBufferE.row(bufferLine) = sE6;
-    }
-    // curl
-    if (chops.mNeedBufferR) {
-        mElement->getCurlField(sRXN3);
-        interpolate<3>(sRXN3, sRX3, sR3, nu_1);
-        mBufferR.row(bufferLine) = sR3;
-    }
-    // stress
-    if (chops.mNeedBufferS) {
-        mElement->getStressField(sSXN6);
-        interpolate<6>(sSXN6, sSX6, sS6, nu_1);
-        mBufferS.row(bufferLine) = sS6;
+    for (int m = 0; m < mWindowPhis.size(); m++) {
+        int nu_1 = mElement->getWindowNu_1(mWindowPhis[m].first);
+        
+        // displ
+        if (chops.mNeedBufferU) {
+            mElement->getDisplField(sUXN3, mMajorityDisplInRTZ, mWindowPhis[m].first);
+            interpolate<3>(sUXN3, sUX3, sU3, nu_1, m);
+            mBufferU.row(bufferLine) += sU3;
+        }
+        // nabla
+        if (chops.mNeedBufferG) {
+            mElement->getNablaField(sGXN9, mMajorityNablaInRTZ, mWindowPhis[m].first);
+            interpolate<9>(sGXN9, sGX9, sG9, nu_1, m);
+            mBufferG.row(bufferLine) += sG9;
+        }
+        // strain
+        if (chops.mNeedBufferE) {
+            mElement->getStrainField(sEXN6, mMajorityStrainInRTZ, mWindowPhis[m].first);
+            interpolate<6>(sEXN6, sEX6, sE6, nu_1, m);
+            mBufferE.row(bufferLine) += sE6;
+        }
+        // curl
+        if (chops.mNeedBufferR) {
+            mElement->getCurlField(sRXN3, mMajorityCurlInRTZ, mWindowPhis[m].first);
+            interpolate<3>(sRXN3, sRX3, sR3, nu_1, m);
+            mBufferR.row(bufferLine) += sR3;
+        }
+        // stress
+        if (chops.mNeedBufferS) {
+            mElement->getStressField(sSXN6, mMajorityStressInRTZ, mWindowPhis[m].first);
+            interpolate<6>(sSXN6, sSX6, sS6, nu_1, m);
+            mBufferS.row(bufferLine) += sS6;
+        }
     }
 }
 
@@ -140,26 +142,26 @@ void StationSolid::
 rotate(int bufferLine, const channel::solid::ChannelOptions &chops) {
     bool cartesian = geodesy::isCartesian();
     if (chops.mNeedBufferU) {
-        rotateField<3>(mBufferU, bufferLine, mElement->displInRTZ(),
+        rotateField<3>(mBufferU, bufferLine, mMajorityDisplInRTZ,
                        chops.mWCS, cartesian);
     }
     if (chops.mNeedBufferG) {
-        rotateField<9>(mBufferG, bufferLine, mElement->nablaInRTZ(),
+        rotateField<9>(mBufferG, bufferLine, mMajorityNablaInRTZ,
                        chops.mWCS, cartesian);
     }
     if (chops.mNeedBufferE) {
         // halve off-diagonal components before rotation
         mBufferE.rightCols(3) *= (numerical::Real).5;
-        rotateField<6>(mBufferE, bufferLine, mElement->strainInRTZ(),
+        rotateField<6>(mBufferE, bufferLine, mMajorityStrainInRTZ,
                        chops.mWCS, cartesian);
         mBufferE.rightCols(3) *= (numerical::Real)2.;
     }
     if (chops.mNeedBufferR) {
-        rotateField<3>(mBufferR, bufferLine, mElement->curlInRTZ(),
+        rotateField<3>(mBufferR, bufferLine, mMajorityCurlInRTZ,
                        chops.mWCS, cartesian);
     }
     if (chops.mNeedBufferS) {
-        rotateField<6>(mBufferS, bufferLine, mElement->stressInRTZ(),
+        rotateField<6>(mBufferS, bufferLine, mMajorityStressInRTZ,
                        chops.mWCS, cartesian);
     }
 }

@@ -1,5 +1,5 @@
 //
-//  NrFieldAnalytical.hpp
+//  GeneralNrFieldAnalytical.hpp
 //  AxiSEM3D
 //
 //  Created by Kuangdai Leng on 3/14/20.
@@ -8,19 +8,19 @@
 
 //  analytical Nr(s,z)
 
-#ifndef NrFieldAnalytical_hpp
-#define NrFieldAnalytical_hpp
+#ifndef GeneralNrFieldAnalytical_hpp
+#define GeneralNrFieldAnalytical_hpp
 
-#include "NrField.hpp"
+#include "GeneralNrField.hpp"
 #include <vector>
 
-class NrFieldAnalytical: public NrField {
+class GeneralNrFieldAnalytical: public GeneralNrField {
 public:
     // constructor
-    NrFieldAnalytical();
+    GeneralNrFieldAnalytical();
     
     // get nr by (s, z)
-    eigen::IColX getNrAtPoints(const eigen::DMatX2_RM &sz) const;
+    int getNrAtPoint(const eigen::DCol2 &sz) const;
     
     // verbose
     std::string verbose() const;
@@ -36,4 +36,4 @@ private:
     std::vector<double> mControlNrs;
 };
 
-#endif /* NrFieldAnalytical_hpp */
+#endif /* GeneralNrFieldAnalytical_hpp */

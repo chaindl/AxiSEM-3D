@@ -309,7 +309,7 @@ void ElementOutput::release(const SE_Model &sem, Domain &domain, double dt,
             geodesy::sz2rtheta(sz, false, 0, 1, 1, 0);
             if (elgrp->mMinR < RZ(0) && RZ(0) < elgrp->mMaxR &&
                 elgrp->mMinZ < RZ(1) && RZ(1) < elgrp->mMaxZ &&
-                quads[iquad].fluid() == elgrp->mFluid) {
+                quads[iquad].containsMedium(elgrp->mFluid)) {
                 opQuads.push_back(iquad);
             }
         }
@@ -454,21 +454,38 @@ void ElementOutput::release(const SE_Model &sem, Domain &domain, double dt,
         }
         
         // add elements to group
+        bool hasWindows = true;
         for (int ielem = 0; ielem < opQuadsUse.size(); ielem++) {
             const std::vector<int> &ipnts =
             (elgrp->mEdgeDim < 0) ? ipntsElemUniform : ipntsElem[ielem];
+            eigen::DMatXX phiLocal = quads[opQuadsUse[ielem]].computeRelativeWindowPhis(phisToUse);
+            if (phiLocal.cols() > 1) {
+                hasWindows = true;
+                if (phisToUse.size() == 0) {
+                throw std::runtime_error("ElementOutput::release || "
+                    "Element output based on azimuthal sampling "
+                    "rate (na_space) is not allowed "
+                    "in regions with azimuthal windows.");
+                }
+            }
             if (elgrp->mFluid) {
                 std::unique_ptr<ElementOpFluid> eop =
                 std::make_unique<ElementOpFluid>(ipnts);
-                eop->setElement(quads[opQuadsUse[ielem]].getFluidElement());
+                eop->setElement(quads[opQuadsUse[ielem]].getElement(), phiLocal.cast<numerical::Real>());
                 EGF->addElementOp(eop);
             } else {
                 std::unique_ptr<ElementOpSolid> eop =
                 std::make_unique<ElementOpSolid>(ipnts);
-                eop->setElement(quads[opQuadsUse[ielem]].getSolidElement());
+                eop->setElement(quads[opQuadsUse[ielem]].getElement(), phiLocal.cast<numerical::Real>());
                 EGS->addElementOp(eop);
             }
         }
+        
+        if (elgrp->mFluid) {
+            EGF->setHasWindows(hasWindows);
+        } else {
+            EGS->setHasWindows(hasWindows);
+        }        
         
         // add group to domain
         if (elgrp->mFluid) {

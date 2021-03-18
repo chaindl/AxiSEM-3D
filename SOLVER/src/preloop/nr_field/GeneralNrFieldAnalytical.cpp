@@ -1,5 +1,5 @@
 //
-//  NrFieldAnalytical.cpp
+//  GeneralNrFieldAnalytical.cpp
 //  AxiSEM3D
 //
 //  Created by Kuangdai Leng on 3/14/20.
@@ -8,17 +8,17 @@
 
 //  analytical Nr(s,z)
 
-#include "NrFieldAnalytical.hpp"
+#include "GeneralNrFieldAnalytical.hpp"
 #include "geodesy.hpp"
 #include "vector_tools.hpp"
 #include "bstring.hpp"
 #include "inparam.hpp"
 
 // TODO: for reproducibility, edit sCodeID to indentify your code
-std::string NrFieldAnalytical::sCodeID = "depth-dependent (AxiSEM3D default)";
+std::string GeneralNrFieldAnalytical::sCodeID = "depth-dependent (AxiSEM3D default)";
 
 // constructor
-NrFieldAnalytical::NrFieldAnalytical() {
+GeneralNrFieldAnalytical::GeneralNrFieldAnalytical() {
     // check code ID
     const std::string &codeID =
     inparam::gInparamNr.get<std::string>("analytical:code_ID");
@@ -27,7 +27,7 @@ NrFieldAnalytical::NrFieldAnalytical() {
         std::runtime_error("NrFieldAnalytical::NrFieldAnalytical || "
                            "Inconsistent code ID's: || "
                            "in inparam.nr.yaml:       " + codeID + " ||"
-                           "in NrFieldAnalytical.cpp: " + sCodeID);
+                           "in GeneralNrFieldAnalytical.cpp: " + sCodeID);
     }
     
     // TODO: add your code here to initialize required data
@@ -58,24 +58,20 @@ NrFieldAnalytical::NrFieldAnalytical() {
 }
 
 // get nr by (s, z)
-eigen::IColX NrFieldAnalytical::
-getNrAtPoints(const eigen::DMatX2_RM &sz) const {
+int GeneralNrFieldAnalytical::
+getNrAtPoint(const eigen::DCol2 &sz) const {
     // input: coordinates (s, z, r, theta, depth) and mUserParameters
     [[maybe_unused]]
-    const eigen::DColX &s = sz.col(0);
-    const eigen::DColX &z = sz.col(1);
-    const eigen::DMatX2_RM &rtheta = geodesy::sz2rtheta(sz, true);
-    const eigen::DColX &r = rtheta.col(0);
+    const double &s = sz(0);
+    const double &z = sz(1);
+    const eigen::DCol2 &rtheta = geodesy::sz2rtheta(sz, true);
+    const double &r = rtheta(0);
     [[maybe_unused]]
-    const eigen::DColX &theta = rtheta.col(1);
+    const double &theta = rtheta(1);
     [[maybe_unused]]
-    const eigen::DColX &depth = geodesy::isCartesian() ?
-    geodesy::getOuterRadius() - z.array() :
-    geodesy::getOuterRadius() - r.array();
-    
-    // output: azimuthal dimension Nr
-    eigen::IColX nr = eigen::IColX::Zero(sz.rows());
-    
+    const double &depth = geodesy::isCartesian() ?
+    geodesy::getOuterRadius() - z :
+    geodesy::getOuterRadius() - r;
     
     ///////////////////////////////////////////////////////////////////
     ///////////////////// Only edit the box below /////////////////////
@@ -89,32 +85,30 @@ getNrAtPoints(const eigen::DMatX2_RM &sz) const {
     //       sCodeID = "depth-dependent (AxiSEM3D default)"
     
     // linear interpolation in the depth-Nr profile
-    nr = depth.unaryExpr([this](double _dep) {
-        int index0 = -1, index1 = -1;
-        double factor0 = 0., factor1 = 0.;
-        try {
-            vector_tools::linearInterpSorted(this->mControlDepths, _dep,
-                                             index0, index1,
-                                             factor0, factor1);
-        } catch (...) {
-            throw std::runtime_error("NrFieldAnalytical::getNrAtPoints || "
+    
+    int index0 = -1, index1 = -1;
+    double factor0 = 0., factor1 = 0.;
+    try {
+        vector_tools::linearInterpSorted(mControlDepths, depth,
+                                         index0, index1,
+                                         factor0, factor1);
+    } catch (...) {
+        throw std::runtime_error("GeneralNrFieldAnalytical::getNrAtPoint || "
                                      "Target depth is out of range. || "
                                      "Code ID: " + sCodeID);
-        }
-        return (int)round(this->mControlNrs[index0] * factor0 +
-                          this->mControlNrs[index1] * factor1);
-    });
+    }
+    int nr = (int)round(mControlNrs[index0] * factor0 +
+                        mControlNrs[index1] * factor1);
     
     ///////////////////////////////////////////////////////////////////
     ///////////////////// Only edit the box above /////////////////////
     ///////////////////////////////////////////////////////////////////
     
-    // return
     return nr;
 }
 
 // verbose
-std::string NrFieldAnalytical::verbose() const {
+std::string GeneralNrFieldAnalytical::verbose() const {
     using namespace bstring;
     std::stringstream ss;
     ss << boxTitle("Nr(s,z)");

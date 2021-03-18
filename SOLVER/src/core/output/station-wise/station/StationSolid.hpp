@@ -12,7 +12,6 @@
 #define StationSolid_hpp
 
 #include "Station.hpp"
-class SolidElement;
 
 class StationSolid: public Station {
 public:
@@ -25,10 +24,6 @@ public:
     
     
     /////////////////////////// setup ///////////////////////////
-    // set element
-    void setElement(const std::shared_ptr<SolidElement> &element,
-                    const eigen::DRowN &weights);
-    
     // set in group
     void setInGroup(int dumpIntv, const channel::solid::ChannelOptions &chops);
     
@@ -39,9 +34,6 @@ public:
     void record(int bufferLine, const channel::solid::ChannelOptions &chops);
     
 private:
-    // element
-    std::shared_ptr<SolidElement> mElement = nullptr;
-    
     // buffer
     eigen::RMatX3_RM mBufferU = eigen::RMatX3_RM(0, 3);
     eigen::RMatX9_RM mBufferG = eigen::RMatX9_RM(0, 9);
@@ -61,6 +53,9 @@ private:
     // process 1: rotate
     void rotate(int bufferLine, const channel::solid::ChannelOptions &chops);
     
+    bool mMajorityDisplInRTZ, mMajorityNablaInRTZ,
+         mMajorityStrainInRTZ, mMajorityCurlInRTZ,
+         mMajorityStressInRTZ;
     
     ////////////////////////////////////////
     //////////////// static ////////////////

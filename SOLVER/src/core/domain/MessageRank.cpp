@@ -9,13 +9,12 @@
 //  1-to-1 mpi communication
 
 #include "MessageRank.hpp"
-#include "SolidPoint.hpp"
-#include "FluidPoint.hpp"
+#include "WindowSum.hpp"
 
 // constructor
 MessageRank::
-MessageRank(int rankOther, const std::vector<MeshPoint> &meshPoints):
-mRankOther(rankOther), mMeshPoints(meshPoints) {
+MessageRank(int rankOther, const std::vector<MeshWindowSum> &meshWindowSums):
+mRankOther(rankOther), mMeshWindowSums(meshWindowSums) {
     // allocate buffer
     allocateBuffer();
 }
@@ -24,52 +23,47 @@ mRankOther(rankOther), mMeshPoints(meshPoints) {
 void MessageRank::allocateBuffer() {
     // allocate buffers
     int sizeComm = 0;
-    for (auto iter = mMeshPoints.begin(); iter != mMeshPoints.end(); iter++) {
-        if (const auto &sp = std::get<1>(*iter)) {
-            sizeComm += sp->sizeComm();
-        }
-        if (const auto &fp = std::get<2>(*iter)) {
-            sizeComm += fp->sizeComm();
+    for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
+        for (const auto &ws: std::get<1>(*iter)) {
+            sizeComm += ws->sizeComm();
         }
     }
-    mBufferSend = eigen::CColX::Zero(sizeComm);
-    mBufferRecv = eigen::CColX::Zero(sizeComm);
+    mBufferSend = eigen::RColX::Zero(sizeComm);
+    mBufferRecv = eigen::RColX::Zero(sizeComm);
 }
 
 // gather from points
-void MessageRank::gatherFromPoints() {
+void MessageRank::gatherFromPointWindows() {
     int row = 0;
-    for (auto iter = mMeshPoints.begin(); iter != mMeshPoints.end(); iter++) {
-        if (const auto &sp = std::get<1>(*iter)) {
-            sp->feedComm(mBufferSend, row);
-        }
-        if (const auto &fp = std::get<2>(*iter)) {
-            fp->feedComm(mBufferSend, row);
+    for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
+        for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
+            for (const auto &ws: std::get<1>(*iter)) {
+                ws->feedComm(mBufferSend, row);
+            }
         }
     }
 }
 
 // scatter to points
-void MessageRank::scatterToPoints() const {
+void MessageRank::scatterToPointWindows() const {
     int row = 0;
-    for (auto iter = mMeshPoints.begin(); iter != mMeshPoints.end(); iter++) {
-        if (const auto &sp = std::get<1>(*iter)) {
-            sp->extractComm(mBufferRecv, row);
-        }
-        if (const auto &fp = std::get<2>(*iter)) {
-            fp->extractComm(mBufferRecv, row);
+    for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
+        for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
+            for (const auto &ws: std::get<1>(*iter)) {
+                ws->extractComm(mBufferRecv, row);
+            }
         }
     }
 }
 
 // check if a point exists on this domain boundary
 bool MessageRank::
-contains(const std::shared_ptr<const Point> &target) const {
+contains(const std::shared_ptr<const PointWindow> &target) const {
     // here we use a lambda expression
     // [&target] means that our lambda captures 'target' by ref
     return std::find_if
-    (mMeshPoints.begin(), mMeshPoints.end(),
-     [&target](const MeshPoint &mpnt) {
-        return std::get<0>(mpnt) == target->getMeshTag();
-    }) != mMeshPoints.end();
+    (mMeshWindowSums.begin(), mMeshWindowSums.end(),
+     [&target](const MeshWindowSum &mws) {
+        return std::get<0>(mws) == target->getMeshTag();
+    }) != mMeshWindowSums.end();
 }

@@ -63,6 +63,9 @@ class GradientQuadrature {
     // for axis
     const bool mAxial;
     
+    // window scaling (2 pi / window size)
+    const floatT mWinFrac;
+    
 #ifdef _SAVE_MEMORY
     // integral factor
     const RMatPP_RM mIntegralFactor;
@@ -101,11 +104,13 @@ public:
                        const eigen::DMatPP_RM &dzdxii,
                        const eigen::DMatPP_RM &dzdeta,
                        const eigen::DMatPP_RM &_1ovrS, bool axial,
-                       const eigen::DMatPP_RM &integralFactor):
+                       const eigen::DMatPP_RM &integralFactor,
+                       const double &winFrac):
     mDsDxii(dsdxii.cast<floatT>()), mDsDeta(dsdeta.cast<floatT>()),
     mDzDxii(dzdxii.cast<floatT>()), mDzDeta(dzdeta.cast<floatT>()),
     m1overS(_1ovrS.cast<floatT>()), mAxial(axial),
-    mIntegralFactor(integralFactor.cast<floatT>()) {
+    mIntegralFactor(integralFactor.cast<floatT>()),
+    mWinFrac((floatT)winFrac) {
         // nothing
     }
     
@@ -114,7 +119,8 @@ public:
     mDsDxii(other.mDsDxii), mDsDeta(other.mDsDeta),
     mDzDxii(other.mDzDxii), mDzDeta(other.mDzDeta),
     m1overS(other.m1overS), mAxial(other.mAxial),
-    mIntegralFactor(other.mIntegralFactor) {
+    mIntegralFactor(other.mIntegralFactor),
+    mWinFrac(other.mWinFrac) {
         // nothing
     }
 #else
@@ -124,10 +130,12 @@ public:
                        const eigen::DMatPP_RM &dzdxii,
                        const eigen::DMatPP_RM &dzdeta,
                        const eigen::DMatPP_RM &_1ovrS, bool axial,
-                       const eigen::DMatPP_RM &integralFactor):
+                       const eigen::DMatPP_RM &integralFactor,
+                       const double &winFrac):
     mDsDxii(dsdxii.cast<floatT>()), mDsDeta(dsdeta.cast<floatT>()),
     mDzDxii(dzdxii.cast<floatT>()), mDzDeta(dzdeta.cast<floatT>()),
     m1overS(_1ovrS.cast<floatT>()), mAxial(axial),
+    mWinFrac((floatT)winFrac),
     mDsDxii_IF((dsdxii.cwiseProduct(integralFactor)).cast<floatT>()),
     mDsDeta_IF((dsdeta.cwiseProduct(integralFactor)).cast<floatT>()),
     mDzDxii_IF((dzdxii.cwiseProduct(integralFactor)).cast<floatT>()),
@@ -141,6 +149,7 @@ public:
     mDsDxii(other.mDsDxii), mDsDeta(other.mDsDeta),
     mDzDxii(other.mDzDxii), mDzDeta(other.mDzDeta),
     m1overS(other.m1overS), mAxial(other.mAxial),
+    mWinFrac(other.mWinFrac),
     mDsDxii_IF(other.mDsDxii_IF),
     mDsDeta_IF(other.mDsDeta_IF),
     mDzDxii_IF(other.mDzDxii_IF),
@@ -169,7 +178,7 @@ public:
         // i * alpha * p
         for (int alpha = 0; alpha < nu_1; alpha++) {
             cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = alpha_I * p[alpha][0];
+            sA[alpha][0] = mWinFrac * alpha_I * p[alpha][0];
         }
         computeGrad_1overS_setTo(nu_1, sA, 0, p_i, 1);
     }
@@ -191,9 +200,9 @@ public:
         // i * alpha * u2 -> 7
         for (int alpha = 0; alpha < nu_1; alpha++) {
             cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = alpha_I * ui[alpha][0] - ui[alpha][1];
-            sA[alpha][1] = alpha_I * ui[alpha][1] + ui[alpha][0];
-            sA[alpha][2] = alpha_I * ui[alpha][2];
+            sA[alpha][0] = mWinFrac * alpha_I * ui[alpha][0] - ui[alpha][1];
+            sA[alpha][1] = mWinFrac * alpha_I * ui[alpha][1] + ui[alpha][0];
+            sA[alpha][2] = mWinFrac * alpha_I * ui[alpha][2];
         }
         computeGrad_1overS_setTo(nu_1, sA, 0, ui_j, 1);
         computeGrad_1overS_setTo(nu_1, sA, 1, ui_j, 4);
@@ -221,9 +230,9 @@ public:
         // i * alpha * u2 -> 3
         for (int alpha = 0; alpha < nu_1; alpha++) {
             cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = alpha_I * ui[alpha][0] - ui[alpha][1];
-            sA[alpha][1] = alpha_I * ui[alpha][1] + ui[alpha][0];
-            sA[alpha][2] = alpha_I * ui[alpha][2];
+            sA[alpha][0] = mWinFrac * alpha_I * ui[alpha][0] - ui[alpha][1];
+            sA[alpha][1] = mWinFrac * alpha_I * ui[alpha][1] + ui[alpha][0];
+            sA[alpha][2] = mWinFrac * alpha_I * ui[alpha][2];
         }
         computeGrad_1overS_addTo(nu_1, sA, 0, eij, 5);
         computeGrad_1overS_setTo(nu_1, sA, 1, eij, 1);
@@ -245,7 +254,7 @@ public:
         // i * alpha * q1
         for (int alpha = 0; alpha < nu_1; alpha++) {
             cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = alpha_I * q_i[alpha][1];
+            sA[alpha][0] = mWinFrac * alpha_I * q_i[alpha][1];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, q, 0,
                                  x1overS_IF, xDzDxii_IF, xDzDeta_IF);
@@ -275,9 +284,9 @@ public:
         // i * alpha * df7 -> 2
         for (int alpha = 0; alpha < nu_1; alpha++) {
             cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = alpha_I * fi_j[alpha][1] - fi_j[alpha][4];
-            sA[alpha][1] = alpha_I * fi_j[alpha][4] + fi_j[alpha][1];
-            sA[alpha][2] = alpha_I * fi_j[alpha][7];
+            sA[alpha][0] = mWinFrac * alpha_I * fi_j[alpha][1] - fi_j[alpha][4];
+            sA[alpha][1] = mWinFrac * alpha_I * fi_j[alpha][4] + fi_j[alpha][1];
+            sA[alpha][2] = mWinFrac * alpha_I * fi_j[alpha][7];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, fi, 0,
                                  x1overS_IF, xDzDxii_IF, xDzDeta_IF);
@@ -311,9 +320,9 @@ public:
         // i * alpha * df3 -> 2
         for (int alpha = 0; alpha < nu_1; alpha++) {
             cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = alpha_I * sij[alpha][5] - sij[alpha][1];
-            sA[alpha][1] = alpha_I * sij[alpha][1] + sij[alpha][5];
-            sA[alpha][2] = alpha_I * sij[alpha][3];
+            sA[alpha][0] = mWinFrac * alpha_I * sij[alpha][5] - sij[alpha][1];
+            sA[alpha][1] = mWinFrac * alpha_I * sij[alpha][1] + sij[alpha][5];
+            sA[alpha][2] = mWinFrac * alpha_I * sij[alpha][3];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, fi, 0,
                                  x1overS_IF, xDzDxii_IF, xDzDeta_IF);
@@ -344,9 +353,9 @@ public:
         // i * alpha * df7 -> 2
         for (int alpha = 0; alpha < nu_1; alpha++) {
             cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = alpha_I * fi_j[alpha][1] - fi_j[alpha][4];
-            sA[alpha][1] = alpha_I * fi_j[alpha][4] + fi_j[alpha][1];
-            sA[alpha][2] = alpha_I * fi_j[alpha][7];
+            sA[alpha][0] = mWinFrac * alpha_I * fi_j[alpha][1] - fi_j[alpha][4];
+            sA[alpha][1] = mWinFrac * alpha_I * fi_j[alpha][4] + fi_j[alpha][1];
+            sA[alpha][2] = mWinFrac * alpha_I * fi_j[alpha][7];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, fi, 0,
                                  m1overS, mDzDxii, mDzDeta);
@@ -377,9 +386,9 @@ public:
         // i * alpha * df3 -> 2
         for (int alpha = 0; alpha < nu_1; alpha++) {
             cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = alpha_I * sij[alpha][5] - sij[alpha][1];
-            sA[alpha][1] = alpha_I * sij[alpha][1] + sij[alpha][5];
-            sA[alpha][2] = alpha_I * sij[alpha][3];
+            sA[alpha][0] = mWinFrac * alpha_I * sij[alpha][5] - sij[alpha][1];
+            sA[alpha][1] = mWinFrac * alpha_I * sij[alpha][1] + sij[alpha][5];
+            sA[alpha][2] = mWinFrac * alpha_I * sij[alpha][3];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, fi, 0,
                                  m1overS, mDzDxii, mDzDeta);

@@ -12,8 +12,6 @@
 #define ElementOpFluid_hpp
 
 #include "ElementOp.hpp"
-#include "FluidElement.hpp"
-#include "Point.hpp"
 
 class ElementOpFluid: public ElementOp {
 public:
@@ -22,47 +20,10 @@ public:
         // nothing
     }
     
-    
     /////////////////////////// setup ///////////////////////////
-    // set element
-    void setElement(const std::shared_ptr<FluidElement> &element) {
-        mElement = element;
-    }
-    
     // set in group
     void setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops,
                     int nphis);
-    
-    
-    /////////////////////////// get sizes ///////////////////////////
-    // get na
-    int getNa(int nphis) const {
-        if (nphis == 0) {
-            return mElement->getNr();
-        } else {
-            return nphis;
-        }
-    }
-    
-    // get nu_1
-    int getNu_1() const {
-        return mElement->getNu_1();
-    }
-    
-    // get element tag
-    int getElementTag() const {
-        return mElement->getQuadTag();
-    }
-    
-    // get coords
-    eigen::DRowX getCoords() const {
-        eigen::DRowX sz(mIPnts.size() * 2);
-        for (int ip = 0; ip < mIPnts.size(); ip++) {
-            sz.block(0, ip * 2, 1, 2) =
-            mElement->getPoint(mIPnts[ip]).getCoords();
-        }
-        return sz;
-    }
     
     
     /////////////////////////// record ///////////////////////////
@@ -70,12 +31,9 @@ public:
     // record
     void
     record(int bufferLine, const channel::fluid::ChannelOptions &chops,
-           const eigen::CMatXX &expIAlphaPhi);
+           eigen::CMatXX &expIAlphaPhi, bool hasWindows);
     
 private:
-    // element
-    std::shared_ptr<FluidElement> mElement = nullptr;
-    
     // buffer
     eigen::RTensor4 mBufferX;
     eigen::RTensor4 mBufferU;

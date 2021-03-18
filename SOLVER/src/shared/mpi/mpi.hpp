@@ -80,12 +80,12 @@ namespace mpi {
         
         template <>
         inline MPI_Datatype typeMPI<std::complex<float>>() {
-            return MPI_CXX_FLOAT_COMPLEX;
+            return MPI_C_FLOAT_COMPLEX;
         }
         
         template <>
         inline MPI_Datatype typeMPI<std::complex<double>>() {
-            return MPI_CXX_DOUBLE_COMPLEX;
+            return MPI_C_DOUBLE_COMPLEX;
         }
         
         template <>
@@ -544,7 +544,7 @@ namespace mpi {
         int row = (int)mat.rows();
         int col = (int)mat.cols();
         
-        // gahter vector
+        // gather vector
         std::vector<std::vector<typename EigenMat::Scalar>> vecVec;
         std::vector<int> vecRow, vecCol;
         gather(vec, vecVec, dest);
@@ -735,6 +735,13 @@ namespace mpi {
         return elemental;
     }
     
+    ////////////////////////////// nr field //////////////////////////////
+    
+    void assembleNodal(std::vector<std::vector<std::pair<double, double>>> &nrField);
+    
+    // vector<vector<vector<pair<double, double>>>> to vector<vector<pair<double, double>>>
+    void scatterNr(const std::vector<std::vector<std::vector<std::pair<double, double>>>> &vecNr,
+                      std::vector<std::vector<std::pair<double, double>>> &nr, int src);
     
     ////////////////////////////// external //////////////////////////////
     // verbose

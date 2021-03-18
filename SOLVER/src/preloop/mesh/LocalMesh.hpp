@@ -32,7 +32,7 @@ public:
         mNodalCoords.resize(0, 2);
         mGeometryType.resize(0);
         mIsElementFluid.resize(0);
-        mNodalNr.resize(0);
+        mNodalNr.clear();
         mL2G_GLL.resize(0);
     }
     
@@ -76,7 +76,7 @@ private:
     eigen::DMatX2_RM mNodalCoords;
     eigen::IColX mGeometryType;
     eigen::IColX mIsElementFluid;
-    eigen::IColX mNodalNr;
+    std::vector<std::vector<std::pair<double, double>>> mNodalNr;
     
     // element-GLL vicinity
     eigen::IColX mL2G_GLL;

@@ -9,15 +9,15 @@
 //  pressure source on fluid element
 
 #include "FluidPressure.hpp"
-#include "FluidElement.hpp"
+#include "Element.hpp"
 
 // constructor
 FluidPressure::FluidPressure(std::unique_ptr<STF> &stf,
-                             const std::shared_ptr<FluidElement> &element,
-                             const eigen::CMatXN &pattern):
-FluidSource(stf, element), mPattern(pattern) {
+                             const std::shared_ptr<const Element> &element,
+                             int m, const eigen::CMatXN &pattern):
+FluidSource(stf, element, m), mPattern(pattern) {
     // prepare
-    element->preparePressureSource();
+    mElement->preparePressureSource(mM);
     
     // workspace
     if (sPattern.rows() < mPattern.rows()) {
@@ -29,5 +29,5 @@ FluidSource(stf, element), mPattern(pattern) {
 void FluidPressure::apply(double time) const {
     int nu_1 = (int)mPattern.rows();
     sPattern.topRows(nu_1) = mPattern * mSTF->getValue(time);
-    mElement->addPressureSource(sPattern, nu_1);
+    mElement->addPressureSource(mM, sPattern, nu_1);
 }

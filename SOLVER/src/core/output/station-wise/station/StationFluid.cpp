@@ -9,21 +9,9 @@
 //  station in fluid
 
 #include "StationFluid.hpp"
-#include "FluidElement.hpp"
 #include "geodesy.hpp"
 
 /////////////////////////// setup ///////////////////////////
-// set element
-void StationFluid::
-setElement(const std::shared_ptr<FluidElement> &element,
-           const eigen::DRowN &weights) {
-    // element
-    mElement = element;
-    
-    // base
-    Station::setElement(weights, mElement->getNu_1());
-}
-
 // set in group
 void StationFluid::
 setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops) {
@@ -33,6 +21,7 @@ setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops) {
     }
     if (chops.mNeedBufferU) {
         mBufferU.resize(dumpIntv, 3);
+        mMajorityDisplInRTZ = mElement->getMajorityDisplInRTZ(mWindowPhis);
     }
     if (chops.mNeedBufferP) {
         mBufferP.resize(dumpIntv, 1);
@@ -42,10 +31,16 @@ setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops) {
     }
     
     // element
-    mElement->prepareWavefieldOutput(chops, false);
+    for (int m = 0; m < mWindowPhis.size(); m++) {
+        mElement->prepareWavefieldOutput(chops, mWindowPhis[m].first, false);
+    }
     
     // workspace
-    expandWorkspaceRecord(mElement->getNu_1(), chops);
+    int maxNu_1 = 0;
+    for (int m = 0; m < mWindowPhis.size(); m++) {
+        maxNu_1 = std::max(maxNu_1, mElement->getWindowNu_1(mWindowPhis[m].first));
+    }
+    expandWorkspaceRecord(maxNu_1, chops);
     expandWorkspaceProcess(dumpIntv, false);
 }
 
@@ -54,30 +49,32 @@ setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops) {
 // record
 void StationFluid::
 record(int bufferLine, const channel::fluid::ChannelOptions &chops) {
-    int nu_1 = mElement->getNu_1();
-    // chi
-    if (chops.mNeedBufferX) {
-        mElement->getChiField(sXXN1);
-        interpolate<1>(sXXN1, sXX1, sX1, nu_1);
-        mBufferX.row(bufferLine) = sX1;
-    }
-    // displacement
-    if (chops.mNeedBufferU) {
-        mElement->getDisplField(sUXN3);
-        interpolate<3>(sUXN3, sUX3, sU3, nu_1);
-        mBufferU.row(bufferLine) = sU3;
-    }
-    // pressure
-    if (chops.mNeedBufferP) {
-        mElement->getPressureField(sPXN1);
-        interpolate<1>(sPXN1, sPX1, sP1, nu_1);
-        mBufferP.row(bufferLine) = sP1;
-    }
-    // delta
-    if (chops.mNeedBufferD) {
-        mElement->getDeltaField(sDXN1);
-        interpolate<1>(sDXN1, sDX1, sD1, nu_1);
-        mBufferD.row(bufferLine) = sD1;
+    for (int m = 0; m < mWindowPhis.size(); m++) {
+        int nu_1 = mElement->getWindowNu_1(mWindowPhis[m].first);
+        // chi
+        if (chops.mNeedBufferX) {
+            mElement->getChiField(sXXN1, mWindowPhis[m].first);
+            interpolate<1>(sXXN1, sXX1, sX1, nu_1, m);
+            mBufferX.row(bufferLine) += sX1;
+        }
+        // displacement
+        if (chops.mNeedBufferU) {
+            mElement->getDisplField(sUXN3, mMajorityDisplInRTZ, mWindowPhis[m].first);
+            interpolate<3>(sUXN3, sUX3, sU3, nu_1, m);
+            mBufferU.row(bufferLine) += sU3;
+        }
+        // pressure
+        if (chops.mNeedBufferP) {
+            mElement->getPressureField(sPXN1, mWindowPhis[m].first);
+            interpolate<1>(sPXN1, sPX1, sP1, nu_1, m);
+            mBufferP.row(bufferLine) += sP1;
+        }
+        // delta
+        if (chops.mNeedBufferD) {
+            mElement->getDeltaField(sDXN1, mWindowPhis[m].first);
+            interpolate<1>(sDXN1, sDX1, sD1, nu_1, m);
+            mBufferD.row(bufferLine) += sD1;
+        }
     }
 }
 
@@ -127,7 +124,7 @@ void StationFluid::
 rotate(int bufferLine, const channel::fluid::ChannelOptions &chops) {
     bool cartesian = geodesy::isCartesian();
     if (chops.mNeedBufferU) {
-        rotateField<3>(mBufferU, bufferLine, mElement->displInRTZ(),
+        rotateField<3>(mBufferU, bufferLine, mMajorityDisplInRTZ,
                        chops.mWCS, cartesian);
     }
 }

@@ -20,7 +20,6 @@
 //  m0 -> mass of water column above
 
 #include "MassOceanLoad3D.hpp"
-#include "fft.hpp"
 
 // constructor
 MassOceanLoad3D::MassOceanLoad3D(const eigen::DColX &mass,
@@ -52,28 +51,20 @@ void MassOceanLoad3D::checkCompatibility(int nr, bool solid) const {
     // expand workspace if needed
     if (sF.rows() < nr) {
         sF.resize(nr, 3);
-        sA.resize(nr, 3);
     }
-    
-    // report request to FFT
-    fft::gFFT_3.addNR(nr);
 }
 
 // compute accel in-place for solid
-void MassOceanLoad3D::computeAccel(eigen::CMatX3 &stiff3) const {
+void MassOceanLoad3D::computeAccel(eigen::RMatX3 &stiff3) const {
     // constants
     int nr = (int)mIM.rows();
     
-    // FFT: Fourier => cardinal
-    fft::gFFT_3.computeC2R(stiff3, sF, nr);
+    sF.topRows(nr) = stiff3.topRows(nr);
     
     // a = im F
-    sA.topRows(nr) = mIM.asDiagonal() * sF.topRows(nr);
+    stiff3.topRows(nr) = mIM.asDiagonal() * sF.topRows(nr);
     
     // a -= F.k k
-    sA.topRows(nr) -= (sF.topRows(nr).cwiseProduct(mK)
+    stiff3.topRows(nr) -= (sF.topRows(nr).cwiseProduct(mK)
                        .rowwise().sum().asDiagonal() * mK);
-    
-    // FFT: cardinal => Fourier
-    fft::gFFT_3.computeR2C(sA, stiff3, nr);
 }

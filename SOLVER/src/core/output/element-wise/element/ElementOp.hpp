@@ -14,6 +14,7 @@
 #include "eigen_element_op.hpp"
 #include "eigen_tools.hpp"
 #include "channel.hpp"
+#include "Element.hpp"
 
 class ElementOp {
 public:
@@ -25,6 +26,49 @@ public:
     // destructor
     virtual ~ElementOp() = default;
     
+    /////////////////////////// setup ///////////////////////////
+    // set element
+    void setElement(const std::shared_ptr<Element> &element, eigen::RMatXX phiLocal) {
+        mElement = element;
+        mPhiLocal = phiLocal;
+    }
+    
+    ////////////////////////// small stuff no longer bound to element type //////////////////////////
+    
+    /////////////////////////// get sizes ///////////////////////////
+    // get na
+    int getNa(int nphis) const {
+        if (nphis == 0) {
+            return mElement->getWindowNr(0);
+        } else {
+            return nphis;
+        }
+    }
+    
+    // get nu_1
+    int getNu_1() const {
+        return mElement->getMaxNu_1();
+    }
+    
+    // get element tag
+    int getElementTag() const {
+        return mElement->getQuadTag();
+    }
+    
+    // get coords
+    eigen::DRowX getCoords() const {
+        eigen::DRowX sz(mIPnts.size() * 2);
+        for (int ip = 0; ip < mIPnts.size(); ip++) {
+            sz.block(0, ip * 2, 1, 2) =
+            mElement->getPointCoords(mIPnts[ip]);
+        }
+        return sz;
+    }
+    
+    int getMaxNPhiLocal() {
+        return (mPhiLocal.array() >= 0).colwise().count().maxCoeff();
+    }
+    
     ///////////////////////// template functions /////////////////////////
     // record: inplane downsampling and making real
     template <int D,
@@ -33,7 +77,7 @@ public:
     typename RMatXND_RM =
     Eigen::Matrix<numerical::Real, Eigen::Dynamic, spectral::nPEM * D,
     Eigen::RowMajor>>
-    void recordToElem(CMatXND &cxnd, int nu_1, RMatXND_RM &rxnd,
+    void recordToElem(CMatXND &cxnd, int nu_1, int iphi1, int nphis, RMatXND_RM &rxnd,
                       const eigen::CMatXX &expIAlphaPhi,
                       eigen::RTensor4 &field, int bufferLine) const {
         // inplane downsampling
@@ -47,7 +91,6 @@ public:
         }
         
         // making real
-        int nphis = (int)expIAlphaPhi.cols();
         int npntsD = npnts * D;
         if (nphis == 0) {
             // no Fourier interpolation, just reform complex to real
@@ -72,11 +115,11 @@ public:
         // write to buffer (Nyquist truncated here)
         static const eigen::IArray3 shuffle = {0, 2, 1};
         static const eigen::IArray3 zero = {0, 0, 0};
-        int na = (int)field.dimension(0);
-        field.slice(eigen::IArray4({0, 0, 0, bufferLine}),
+        int na = (nphis == 0) ? (int)field.dimension(0) : nphis;
+        field.slice(eigen::IArray4({iphi1, 0, 0, bufferLine}),
                     eigen::IArray4({na, npnts, D, 1})).
         reshape(eigen::IArray3{na, npnts, D})
-        = // the longest C++ statement I have written
+        += // the longest C++ statement I have written // and the longest one I have ever read XP
         Eigen::TensorMap<eigen::RTensor3>
         (rxnd.data(), eigen::IArray3({rxnd.rows(), rxnd.cols(), 1})).
         slice(zero, eigen::IArray3({na, npntsD, 1})).
@@ -85,7 +128,7 @@ public:
     
     // dump: compute channel and feed IO buffer
     template <int D> static
-    void dumpToIO(const eigen::RTensor4 &field, int fieldIndex,
+    void dumpToIO(eigen::RTensor4 &field, int fieldIndex,
                   int bufferLine, int channelIndex, int elemIndexNaGrid,
                   int naGridIndex, std::vector<eigen::RTensor5> &ioBuffers) {
         // result reference
@@ -171,12 +214,17 @@ public:
                                          "Invalid channel setting.");
             }
         }
+        field.setZero();
     }
     
     ////////// data //////////
 protected:
     // ipnts are different for elements if edge is specified
     const std::vector<int> mIPnts;
+    
+    // element
+    std::shared_ptr<Element> mElement = nullptr;
+    eigen::RMatXX mPhiLocal;
 };
 
 #endif /* ElementOp_hpp */

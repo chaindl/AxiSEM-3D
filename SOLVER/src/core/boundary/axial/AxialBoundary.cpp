@@ -11,8 +11,8 @@
 #include "AxialBoundary.hpp"
 
 // point
-#include "SolidPoint.hpp"
-#include "FluidPoint.hpp"
+#include "SolidPointWindow.hpp"
+#include "FluidPointWindow.hpp"
 
 // domain
 #include "Messaging.hpp"
@@ -24,9 +24,9 @@ void AxialBoundary::apply() const {
     static const numerical::Real half = .5;
     
     // solid
-    for (const std::shared_ptr<SolidPoint> &sp: mSolidPoints) {
-        eigen::CMatX3 &stiff = sp->getFields().mStiff;
-        int nu = sp->getNu_1() - 1;
+    for (const std::shared_ptr<SolidPointWindow> &spw: mSolidPointWindows) {
+        eigen::CMatX3 &stiff = spw->getFields().mStiff;
+        int nu = spw->getNu_1() - 1;
         
         // alpha = 0
         stiff(0, 0) = czero;
@@ -45,8 +45,8 @@ void AxialBoundary::apply() const {
     }
     
     // fluid
-    for (const std::shared_ptr<FluidPoint> &fp: mFluidPoints) {
-        fp->getFields().mStiff.bottomRows(fp->getNu_1() - 1).setZero();
+    for (const std::shared_ptr<FluidPointWindow> &fpw: mFluidPointWindows) {
+        fpw->getFields().mStiff.bottomRows(fpw->getNu_1() - 1).setZero();
     }
 }
 
@@ -54,14 +54,14 @@ void AxialBoundary::apply() const {
 void AxialBoundary::
 countInfo(const Messaging &msg, int &solid, int &fluid) const {
     solid = 0;
-    for (const auto &point: mSolidPoints) {
-        if (!msg.pointInSmallerRank(point)) {
+    for (const auto &pw: mSolidPointWindows) {
+        if (!msg.pointInSmallerRank(pw)) {
             solid++;
         }
     }
     fluid = 0;
-    for (const auto &point: mFluidPoints) {
-        if (!msg.pointInSmallerRank(point)) {
+    for (const auto &pw: mFluidPointWindows) {
+        if (!msg.pointInSmallerRank(pw)) {
             fluid++;
         }
     }

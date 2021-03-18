@@ -26,6 +26,7 @@ class ExodusMesh;
 class ABC;
 class LocalMesh;
 class GLLPoint;
+class NrField;
 
 // release
 class Domain;
@@ -41,17 +42,22 @@ class Quad {
 public:
     // constructor
     Quad(const ExodusMesh &exodusMesh, const LocalMesh &localMesh,
-         int localTag);
+         const NrField &nrField, int localTag);
     
     // finishing 3D properties
     void finishing3D() {
-        mUndulation->finishing3D();
+        for (int m = 0; m < getM(); m++) {
+            mUndulation[m]->finishing3D();
+        }
     }
     
     // finished 3D properties
     void finished3D() {
-        mMaterial->finished3D();
-        mUndulation->finished3D(*this);
+        for (int m = 0; m < getM(); m++) {
+            double winFrac = 2 * numerical::dPi / (std::get<0>(*mWindows[m])(3) - std::get<0>(*mWindows[m])(0));
+            mUndulation[m]->finished3D(*this, winFrac);
+            mMaterial[m]->finished3D();
+        }
     }
     
     // setup GLL
@@ -86,10 +92,9 @@ private:
     (eigen::DMat2N &sz, std::array<eigen::DMat22, spectral::nPEM> &J) const;
     
     // get normal
-    void computeNormal(int edge, const eigen::DMat2N &sz,
-                       const std::array<eigen::DMat22, spectral::nPEM> &J,
-                       std::vector<int> &ipnts,
-                       eigen::arP_DMatX3 &normal) const;
+    eigen::DMat2P computeNormal1D(int edge, const eigen::DMat2N &sz,
+                         const std::array<eigen::DMat22, spectral::nPEM> &J,
+                         std::vector<int> &ipnts) const;
     
     // weights for CG4 attenuation
     eigen::DRow4 computeWeightsCG4(const eigen::DMatPP_RM &ifPP) const;
@@ -102,10 +107,15 @@ public:
     }
     
     // get point nr
-    inline const eigen::IRowN &getPointNr() const {
-        return *mPointNr;
+    inline const eigen::IRowN getPointNr(const int m) const {
+        return std::get<1>(*mWindows[m]);
     }
     
+    eigen::DMatXX computeRelativeWindowPhis(const std::vector<double> &phis) const;
+    eigen::DColX computeWindowPhi(int m, int ipnt, bool keep_unwrapped) const; 
+    eigen::DColX computeWindowFraction(eigen::DColX phi, int m, bool relative_phi) const;
+    int getM() const {return mWindows.size();};
+
     // get point sz
     eigen::DMat2N getPointSZ() const {
         eigen::DMat2N pointSZ;
@@ -116,24 +126,45 @@ public:
         return pointSZ;
     }
     
+    bool isFluid(double phi) const {
+        for (int m = 0; m < mWindows.size(); m++) {
+            if (std::get<0>(*mWindows[m])(0) < std::get<0>(*mWindows[m])(3)) {
+                if (std::get<0>(*mWindows[m])(0) <= phi && phi <= std::get<0>(*mWindows[m])(3)) {
+                    return mFluid3D[m];
+                }
+            } else {
+                if (std::get<0>(*mWindows[m])(3) <= phi || phi <= std::get<0>(*mWindows[m])(0)) {
+                    return mFluid3D[m];
+                }
+            }
+        }
+    }
+    
+    bool containsMedium(bool fluid) const {
+        for (int m = 0; m < mWindows.size(); m++) {
+            if (mFluid3D[m] == fluid) return true;
+        }
+        return false;
+    }
+    
     // get undulation
-    eigen::arN_DColX getUndulation() const {
-        return mUndulation->getPointwise();
+    eigen::arN_DColX getUndulation(const int m) const {
+        return mUndulation[m]->getPointwise();
     }
     
     // get material
-    std::unique_ptr<Material> &getMaterialPtr() {
-        return mMaterial;
+    std::unique_ptr<Material> &getMaterialPtr(const int m) {
+        return mMaterial[m];
     }
     
     // get undulation
-    std::unique_ptr<Undulation> &getUndulationPtr() {
-        return mUndulation;
+    std::unique_ptr<Undulation> &getUndulationPtr(const int m) {
+        return mUndulation[m];
     }
     
     // get oceanload
-    std::unique_ptr<OceanLoad> &getOceanLoadPtr() {
-        return mOceanLoad;
+    std::unique_ptr<OceanLoad> &getOceanLoadPtr(const int m) {
+        return mOceanLoad[m];
     }
     
     // surface edge
@@ -141,9 +172,8 @@ public:
         return mEdgesOnBoundary.at("TOP");
     }
     
-    // fluid
-    bool fluid() const {
-        return mFluid;
+    int getSFEdge() const {
+        mEdgesOnBoundary.at("SOLID_FLUID");
     }
     
     // axial
@@ -151,10 +181,9 @@ public:
         return mEdgesOnBoundary.at("LEFT") != -1;
     }
     
-    // create gradient
     template <typename floatT>
     std::unique_ptr<const GradientQuadrature<floatT>>
-    createGradient(eigen::DMat2N &sz, eigen::DMatPP_RM &ifPP) const {
+    createGradient(eigen::DMat2N &sz, eigen::DMatPP_RM &ifPP, double winFrac) const {
         // integral factor
         static std::array<eigen::DMat22, spectral::nPEM> J;
         const eigen::DRowN &ifact = computeIntegralFactor(sz, J);
@@ -180,18 +209,13 @@ public:
         
         // return
         return std::make_unique<GradientQuadrature<floatT>>
-        (dsdxii, dsdeta, dzdxii, dzdeta, inv_s, axial(), ifPP);
+        (dsdxii, dsdeta, dzdxii, dzdeta, inv_s, axial(), ifPP, winFrac);
     }
     
     // get element
-    std::shared_ptr<const Element> getElement() const;
-    
-    // get solid element
-    const std::shared_ptr<SolidElement> &getSolidElement() const;
-    
-    // get fluid element
-    const std::shared_ptr<FluidElement> &getFluidElement() const;
-    
+    std::shared_ptr<Element> getElement() const {
+        return mElement;
+    }
     
     //////////////////////////////////////////////////////
     //////////////////////// data ////////////////////////
@@ -202,27 +226,32 @@ private:
     const int mGlobalTag;
     
     // solid-fluid
-    const bool mFluid;
+    const bool mFluid1D;
+    std::vector<bool> mFluid3D;
     
     // model boundary
     std::map<std::string, int> mEdgesOnBoundary;
     
-    // nr field
-    std::unique_ptr<eigen::IRowN> mPointNr = nullptr;
+    /////////////// nr field ///////////////
+    // combined container all the window info:
+    // <0> phi: start of window, end of first overlap, start of second overlap, end of window
+    // <1> nr
+    // <2> tags for GLL access
+    // <3> overlap with next window (otherwise unclear for windows with only 1 point overlap)
+    std::vector<std::unique_ptr<std::tuple<eigen::DRow4, eigen::IRowN, int, bool>>> mWindows;
     
     ////////////// components //////////////
     // mapping
     std::unique_ptr<Mapping> mMapping = nullptr;
     // material
-    std::unique_ptr<Material> mMaterial = nullptr;
+    std::vector<std::unique_ptr<Material>> mMaterial;
     // undulation
-    std::unique_ptr<Undulation> mUndulation = nullptr;
+    std::vector<std::unique_ptr<Undulation>> mUndulation;
     // ocean load
-    std::unique_ptr<OceanLoad> mOceanLoad = nullptr;
+    std::vector<std::unique_ptr<OceanLoad>> mOceanLoad;
     
     // element pointers after release
-    std::shared_ptr<SolidElement> mSolidElement = nullptr;
-    std::shared_ptr<FluidElement> mFluidElement = nullptr;
+    std::shared_ptr<Element> mElement = nullptr;
 };
 
 #endif /* Quad_hpp */

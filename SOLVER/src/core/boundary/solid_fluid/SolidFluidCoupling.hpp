@@ -14,21 +14,21 @@
 // point
 #include "eigen_point.hpp"
 #include <memory>
-class SolidPoint;
-class FluidPoint;
+class SolidPointWindow;
+class FluidPointWindow;
 
 class SolidFluidCoupling {
 public:
     // constructor
-    SolidFluidCoupling(const std::shared_ptr<SolidPoint> &sp,
-                       const std::shared_ptr<FluidPoint> &fp);
+    SolidFluidCoupling(const std::shared_ptr<SolidPointWindow> &spw,
+                       const std::shared_ptr<FluidPointWindow> &fpw);
     
     // destructor
     virtual ~SolidFluidCoupling() = default;
     
     // get solid point
-    const std::shared_ptr<SolidPoint> &getSolidPoint() const {
-        return mSolidPoint;
+    const std::shared_ptr<SolidPointWindow> &getSolidPointWindow() const {
+        return mSolidPointWindow;
     }
     
     // apply coupling
@@ -51,8 +51,8 @@ public:
     
 protected:
     // coupled solid-fluid pair
-    const std::shared_ptr<SolidPoint> mSolidPoint;
-    const std::shared_ptr<FluidPoint> mFluidPoint;
+    const std::shared_ptr<SolidPointWindow> mSolidPointWindow;
+    const std::shared_ptr<FluidPointWindow> mFluidPointWindow;
 };
 
 #endif /* SolidFluidCoupling_hpp */

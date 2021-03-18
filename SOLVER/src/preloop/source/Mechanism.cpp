@@ -43,7 +43,7 @@ buildInparam(int sindex, const std::string &sourceName) {
 // release element source
 void Mechanism::
 release(const eigen::DMat33 &Qzsp, bool sourceOnAxis,
-        const eigen::DRowN &inplaneFactor, double phi,
+        const eigen::DRowN &inplaneFactor, int im, double phi,
         const Quad &quad, std::unique_ptr<STF> &stf, Domain &domain) const {
     // constants
     using spectral::nPEM;
@@ -52,13 +52,15 @@ release(const eigen::DMat33 &Qzsp, bool sourceOnAxis,
     const numerical::ComplexD i_phi(0., phi);
     
     // nu + 1
-    int nu_1 = quad.getElement()->getNu_1();
+    int nu_1 = quad.getElement()->getWindowNu_1(im);
+    eigen::DColX phi_ = eigen::DColX::Constant(1, 1, phi);
+    double winFrac = quad.computeWindowFraction(phi_, im, true)(0);
     
     // create source
     std::unique_ptr<const ElementSource> src = nullptr;
     if (mType == SM_Type::FluidPressure) {
         // interpolated data
-        const eigen::DRowN &p = mData(0) * inplaneFactor;
+        const eigen::DRowN &p = mData(0) * inplaneFactor * winFrac;
         // allocate
         if (sourceOnAxis) {
             nu_1 = std::min(nu_1, 1);
@@ -83,14 +85,14 @@ release(const eigen::DMat33 &Qzsp, bool sourceOnAxis,
         }
         // element source
         src = std::make_unique<const FluidPressure>
-        (stf, quad.getFluidElement(), pattern.cast<numerical::ComplexR>());
+        (stf, quad.getElement(), im, pattern.cast<numerical::ComplexR>());
     } else if (mType == SM_Type::ForceVector) {
         // rotate data
         const eigen::DColX &fzsp = Qzsp * mData;
         // interpolated data
-        const eigen::DRowN &fs = fzsp(1) * inplaneFactor;
-        const eigen::DRowN &fp = fzsp(2) * inplaneFactor;
-        const eigen::DRowN &fz = fzsp(0) * inplaneFactor;
+        const eigen::DRowN &fs = fzsp(1) * inplaneFactor * winFrac;
+        const eigen::DRowN &fp = fzsp(2) * inplaneFactor * winFrac;
+        const eigen::DRowN &fz = fzsp(0) * inplaneFactor * winFrac;
         // allocate
         if (sourceOnAxis) {
             nu_1 = std::min(nu_1, 2);
@@ -127,7 +129,7 @@ release(const eigen::DMat33 &Qzsp, bool sourceOnAxis,
         }
         // element source
         src = std::make_unique<const SolidForce>
-        (stf, quad.getSolidElement(), pattern.cast<numerical::ComplexR>());
+        (stf, quad.getElement(), im, pattern.cast<numerical::ComplexR>());
     } else {
         // rotate data
         static eigen::DMat33 m;
@@ -150,12 +152,12 @@ release(const eigen::DMat33 &Qzsp, bool sourceOnAxis,
         // mzz msz mpz
         // msz mss msp
         // mpz msp mpp
-        const eigen::DRowN &mss = m(1, 1) * inplaneFactor;
-        const eigen::DRowN &mpp = m(2, 2) * inplaneFactor;
-        const eigen::DRowN &mzz = m(0, 0) * inplaneFactor;
-        const eigen::DRowN &mpz = m(0, 2) * inplaneFactor;
-        const eigen::DRowN &msz = m(0, 1) * inplaneFactor;
-        const eigen::DRowN &msp = m(1, 2) * inplaneFactor;
+        const eigen::DRowN &mss = m(1, 1) * inplaneFactor * winFrac;
+        const eigen::DRowN &mpp = m(2, 2) * inplaneFactor * winFrac;
+        const eigen::DRowN &mzz = m(0, 0) * inplaneFactor * winFrac;
+        const eigen::DRowN &mpz = m(0, 2) * inplaneFactor * winFrac;
+        const eigen::DRowN &msz = m(0, 1) * inplaneFactor * winFrac;
+        const eigen::DRowN &msp = m(1, 2) * inplaneFactor * winFrac;
         // allocate
         if (sourceOnAxis) {
             nu_1 = std::min(nu_1, 3);
@@ -218,7 +220,7 @@ release(const eigen::DMat33 &Qzsp, bool sourceOnAxis,
         }
         // element source
         src = std::make_unique<const SolidMoment>
-        (stf, quad.getSolidElement(), pattern.cast<numerical::ComplexR>());
+        (stf, quad.getElement(), im, pattern.cast<numerical::ComplexR>());
     }
     
     // finally add to domain

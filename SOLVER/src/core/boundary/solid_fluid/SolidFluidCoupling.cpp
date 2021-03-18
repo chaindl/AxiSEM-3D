@@ -11,15 +11,17 @@
 #include "SolidFluidCoupling.hpp"
 
 // point
-#include "SolidPoint.hpp"
-#include "FluidPoint.hpp"
+#include "SolidPointWindow.hpp"
+#include "FluidPointWindow.hpp"
+
+class Point;
 
 // constructor
 SolidFluidCoupling::
-SolidFluidCoupling(const std::shared_ptr<SolidPoint> &sp,
-                   const std::shared_ptr<FluidPoint> &fp):
-mSolidPoint(sp), mFluidPoint(fp) {
-    if (mSolidPoint->getMeshTag() != mFluidPoint->getMeshTag()) {
+SolidFluidCoupling(const std::shared_ptr<SolidPointWindow> &spw,
+                   const std::shared_ptr<FluidPointWindow> &fpw):
+mSolidPointWindow(spw), mFluidPointWindow(fpw) {
+    if (mSolidPointWindow->getMeshTag() != mFluidPointWindow->getMeshTag()) {
         throw std::runtime_error("SolidFluidCoupling::SolidFluidCoupling || "
                                  "The coupled solid and fluid points have "
                                  "different mesh tags (positions).");
@@ -29,17 +31,17 @@ mSolidPoint(sp), mFluidPoint(fp) {
 // compute coupling
 void SolidFluidCoupling::apply() const {
     // this order matters!
-    coupleSolidToFluid(mSolidPoint->getFields().mDispl,
-                       mFluidPoint->getFields().mStiff);
-    coupleFluidToSolid(mFluidPoint->getFields().mStiff,
-                       mSolidPoint->getFields().mStiff);
+    coupleSolidToFluid(mSolidPointWindow->getFields().mDispl,
+                       mFluidPointWindow->getFields().mStiff);
+    coupleFluidToSolid(mFluidPointWindow->getFields().mStiff,
+                       mSolidPointWindow->getFields().mStiff);
 }
 
 
 ////////////////////////////// virtual //////////////////////////////
 // check compatibility
 void SolidFluidCoupling::checkCompatibility(int nr) const {
-    if (mSolidPoint->getNr() != nr || mFluidPoint->getNr() != nr) {
+    if (mSolidPointWindow->getNr() != nr || mFluidPointWindow->getNr() != nr) {
         throw std::runtime_error("SolidFluidCoupling::checkCompatibility || "
                                  "Incompatible sizes.");
     }

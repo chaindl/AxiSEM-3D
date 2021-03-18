@@ -16,8 +16,8 @@
 class SolidFluidCoupling1D: public SolidFluidCoupling {
 public:
     // constructor
-    SolidFluidCoupling1D(const std::shared_ptr<SolidPoint> &sp,
-                         const std::shared_ptr<FluidPoint> &fp,
+    SolidFluidCoupling1D(const std::shared_ptr<SolidPointWindow> &spw,
+                         const std::shared_ptr<FluidPointWindow> &fpw,
                          double ns_unassmb, double nz_unassmb,
                          double ns_assmb, double nz_assmb,
                          double massFluid);

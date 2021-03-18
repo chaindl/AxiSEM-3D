@@ -27,6 +27,9 @@ namespace eigen {
     typedef Eigen::Matrix<double, Eigen::Dynamic, 3> DMatX3;
     typedef Eigen::Matrix<numerical::Real, Eigen::Dynamic, 3> RMatX3;
     typedef Eigen::Matrix<numerical::ComplexR, Eigen::Dynamic, 3> CMatX3;
+    
+    // window sampling 
+    typedef Eigen::Matrix<numerical::Real, Eigen::Dynamic, 2> RMatX2;
 }
 
 #endif /* eigen_point_hpp */

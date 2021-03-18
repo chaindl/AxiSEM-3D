@@ -10,10 +10,8 @@
 
 #include "Domain.hpp"
 // mesh
-#include "SolidPoint.hpp"
-#include "FluidPoint.hpp"
-#include "SolidElement.hpp"
-#include "FluidElement.hpp"
+#include "Point.hpp"
+#include "Element.hpp"
 // boundary
 #include "SolidFluidBoundary.hpp"
 #include "AbsorbingBoundary.hpp"
@@ -22,7 +20,6 @@
 // mpi
 #include "Messaging.hpp"
 // source
-#include "WavefieldInjection.hpp"
 #include "ElementSource.hpp"
 // output
 #include "StationGroup.hpp"
@@ -46,81 +43,44 @@ Domain::Domain() {
     mAxialBoundary = std::make_unique<AxialBoundary>();
     mFluidSurfaceBoundary = std::make_unique<FluidSurfaceBoundary>();
     mMessaging = nullptr;
-    mWavefieldInjection = nullptr;
     mWavefieldScanning = nullptr;
 }
 
 ////////////////////// domain construction //////////////////////
 // add a solid point
-void Domain::addSolidPoint(const std::shared_ptr<SolidPoint> &point) {
-    point->setDomainTag((int)mSolidPoints.size());
-    mSolidPoints.push_back(point);
-}
-
-// add a fluid point
-void Domain::addFluidPoint(const std::shared_ptr<FluidPoint> &point) {
-    point->setDomainTag((int)mFluidPoints.size());
-    mFluidPoints.push_back(point);
+void Domain::addPoint(const std::shared_ptr<Point> &point) {
+    point->setDomainTag((int)mPoints.size());
+    mPoints.push_back(point);
 }
 
 // add a solid element
-void Domain::addSolidElement(const std::shared_ptr<SolidElement> &element) {
-    element->setDomainTag((int)mSolidElements.size());
-    mSolidElements.push_back(element);
-}
-
-// add a fluid element
-void Domain::addFluidElement(const std::shared_ptr<FluidElement> &element) {
-    element->setDomainTag((int)mFluidElements.size());
-    mFluidElements.push_back(element);
+void Domain::addElement(const std::shared_ptr<Element> &element) {
+    element->setDomainTag((int)mElements.size());
+    mElements.push_back(element);
 }
 
 // replace a solid element
-void Domain::replaceSolidElement(const std::shared_ptr<SolidElement> &element) {
+void Domain::replaceElement(const std::shared_ptr<Element> &element) {
     // check domain tag
     int domainTag = element->getDomainTag();
     if (domainTag == -1) {
-        throw std::runtime_error("Domain::replaceSolidElement || "
+        throw std::runtime_error("Domain::replaceElement || "
                                  "Domain tag must be set before replacement.");
     }
     // check quad tag
-    if (element->getQuadTag() != mSolidElements[domainTag]->getQuadTag()) {
-        throw std::runtime_error("Domain::replaceSolidElement || "
+    if (element->getQuadTag() != mElements[domainTag]->getQuadTag()) {
+        throw std::runtime_error("Domain::replaceElement || "
                                  "The new and the old elements must have "
                                  "the same Quad tag.");
     }
     //  check old reference
-    if (mSolidElements[domainTag].use_count() > 1) {
-        throw std::runtime_error("Domain::replaceSolidElement || "
+    if (mElements[domainTag].use_count() > 1) {
+        throw std::runtime_error("Domain::replaceElement || "
                                  "The old element has been referred outside "
                                  "this domain and is thus irreplaceable.");
     }
     // after replacement, the old will be deleted
-    mSolidElements[element->getDomainTag()] = element;
-}
-
-// replace a fluid element
-void Domain::replaceFluidElement(const std::shared_ptr<FluidElement> &element) {
-    // check domain tag
-    int domainTag = element->getDomainTag();
-    if (domainTag == -1) {
-        throw std::runtime_error("Domain::replaceFluidElement || "
-                                 "Domain tag must be set before replacement.");
-    }
-    // check quad tag
-    if (element->getQuadTag() != mFluidElements[domainTag]->getQuadTag()) {
-        throw std::runtime_error("Domain::replaceFluidElement || "
-                                 "The new and the old elements must have "
-                                 "the same Quad tag.");
-    }
-    //  check old reference
-    if (mFluidElements[domainTag].use_count() > 1) {
-        throw std::runtime_error("Domain::replaceFluidElement || "
-                                 "The old element has been referred outside "
-                                 "this domain and is thus irreplaceable.");
-    }
-    // after replacement, the old will be deleted
-    mFluidElements[element->getDomainTag()] = element;
+    mElements[element->getDomainTag()] = element;
 }
 
 // set mpi messaging
@@ -132,29 +92,26 @@ void Domain::setMessaging(std::unique_ptr<Messaging> &msg) {
 std::string Domain::verbose(const std::string &title) const {
     //////////////////////////// count info ////////////////////////////
     // point
-    std::map<std::string, int> typeCountPoint;
-    for (const auto &point: mSolidPoints) {
+    std::map<std::string, int> typeCountPointWindow;
+    int countPoints = 0;
+    for (const auto &point: mPoints) {
         if (!mMessaging->pointInSmallerRank(point)) {
-            vector_tools::aggregate(typeCountPoint, point->typeInfo(), 1);
+            countPoints++;
+            point->countInfo(typeCountPointWindow);
         }
     }
-    for (const auto &point: mFluidPoints) {
-        if (!mMessaging->pointInSmallerRank(point)) {
-            vector_tools::aggregate(typeCountPoint, point->typeInfo(), 1);
-        }
-    }
-    mpi::aggregate(typeCountPoint, 0, MPI_SUM);
+    mpi::aggregate(typeCountPointWindow, 0, MPI_SUM);
+    countPoints = mpi::sum(countPoints);
     
     // element
-    std::map<std::string, int> typeCountElement;
-    for (const auto &elem: mSolidElements) {
-        vector_tools::aggregate(typeCountElement, elem->typeInfo(), 1);
+    std::map<std::string, int> typeCountElementWindow;
+    for (const auto &elem: mElements) {
+        elem->countInfo(typeCountElementWindow);
     }
-    for (const auto &elem: mFluidElements) {
-        vector_tools::aggregate(typeCountElement, elem->typeInfo(), 1);
-    }
-    mpi::aggregate(typeCountElement, 0, MPI_SUM);
-    
+    mpi::aggregate(typeCountElementWindow, 0, MPI_SUM);
+    int countElements = mElements.size();
+    countElements = mpi::sum(countElements);
+
     // solid-fluid boundary
     std::map<std::string, int> typeCountSFB =
     mSolidFluidBoundary->countInfo(*mMessaging);
@@ -183,8 +140,8 @@ std::string Domain::verbose(const std::string &title) const {
     
     //////////////////////////// max key size ////////////////////////////
     int mkl = (int)std::string("# rank-to-rank communications").size();
-    mkl = std::max(mkl, vector_tools::maxKeyLength(typeCountPoint));
-    mkl = std::max(mkl, vector_tools::maxKeyLength(typeCountElement));
+    mkl = std::max(mkl, vector_tools::maxKeyLength(typeCountPointWindow));
+    mkl = std::max(mkl, vector_tools::maxKeyLength(typeCountElementWindow));
     mkl = std::max(mkl, vector_tools::maxKeyLength(typeCountSFB));
     mkl = std::max(mkl, vector_tools::maxKeyLength(typeCountABB));
     
@@ -193,15 +150,17 @@ std::string Domain::verbose(const std::string &title) const {
     std::stringstream ss;
     ss << bstring::boxTitle(title);
     // point
-    int total = vector_tools::sumValues(typeCountPoint);
+    int total = vector_tools::sumValues(typeCountPointWindow);
     ss << bstring::boxSubTitle(0, "GLL points");
-    ss << bstring::boxEquals(2, mkl, typeCountPoint);
-    ss << bstring::boxEquals(2, mkl + 1, "Σ", total);
+    ss << bstring::boxEquals(2, mkl + 1, "Σ points", countPoints);
+    ss << bstring::boxEquals(2, mkl + 1, "Σ azim. windows", total);
+    ss << bstring::boxEquals(2, mkl, typeCountPointWindow);
     // element
-    total = vector_tools::sumValues(typeCountElement);
+    total = vector_tools::sumValues(typeCountElementWindow);
     ss << bstring::boxSubTitle(0, "Spectral elements");
-    ss << bstring::boxEquals(2, mkl, typeCountElement);
-    ss << bstring::boxEquals(2, mkl + 1, "Σ", total);
+    ss << bstring::boxEquals(2, mkl + 1, "Σ elements", countElements);
+    ss << bstring::boxEquals(2, mkl + 1, "Σ azim. windows", total);
+    ss << bstring::boxEquals(2, mkl, typeCountElementWindow);
     // axial boundary
     ss << bstring::boxSubTitle(0, "Axial boundary");
     ss << bstring::boxEquals(2, mkl, "Solid", axSolid);
@@ -238,11 +197,11 @@ std::string Domain::verbose(const std::string &title) const {
 // SOLVING STAGE //
 
 // set wavefield injection
-void Domain::
-setWavefieldInjection(std::unique_ptr<WavefieldInjection> &wj) {
-    wj->setInDomain(*this);
-    mWavefieldInjection = std::move(wj);
-}
+//void Domain::
+//setWavefieldInjection(std::unique_ptr<WavefieldInjection> &wj) {
+//    wj->setInDomain(*this);
+//    mWavefieldInjection = std::move(wj);
+//}
 
 void Domain::
 addElementSource(std::unique_ptr<const ElementSource> &esrc) {
@@ -284,9 +243,9 @@ setWavefieldScanning(std::unique_ptr<WavefieldScanning> &ws) {
 // apply sources
 void Domain::applySources(int tstep, double time) const {
     // wavefield injection
-    if (mWavefieldInjection) {
-        mWavefieldInjection->apply(tstep, time);
-    }
+    //if (mWavefieldInjection) {
+    //    mWavefieldInjection->apply(tstep, time);
+    //}
     
     // general sources
     for (const std::unique_ptr<const ElementSource> &src: mElementSources) {
@@ -296,13 +255,7 @@ void Domain::applySources(int tstep, double time) const {
 
 // compute stiffness
 void Domain::computeStiffness() const {
-    // solid
-    for (const std::shared_ptr<const SolidElement> &element: mSolidElements) {
-        element->computeStiff();
-    }
-    
-    // fluid
-    for (const std::shared_ptr<const FluidElement> &element: mFluidElements) {
+    for (const std::shared_ptr<const Element> &element: mElements) {
         element->computeStiff();
     }
 }
@@ -314,16 +267,13 @@ void Domain::applyBC_BeforeAssemblingStiff() const {
     // the following order matters!
     mAbsorbingBoundary->applyClayton();
     mSolidFluidBoundary->apply();
+    mAxialBoundary->apply();
+    mFluidSurfaceBoundary->apply();
 }
 
 // boundary conditions after assembling stiffness
 // * axial
 // * fluid surface
-void Domain::applyBC_AfterAssemblingStiff() const {
-    // the following order matters!
-    mAxialBoundary->apply();
-    mFluidSurfaceBoundary->apply();
-}
 
 // boundary conditions after computing acceleration
 // * sponge ABC
@@ -333,14 +283,15 @@ void Domain::applyBC_AfterComputingAccel() const {
 
 // stiff to accel on points
 void Domain::computeStiffToAccel() const {
-    // solid
-    for (const std::shared_ptr<SolidPoint> &point: mSolidPoints) {
+    for (const std::shared_ptr<Point> &point: mPoints) {
         point->computeStiffToAccel();
     }
-    
-    // fluid
-    for (const std::shared_ptr<FluidPoint> &point: mFluidPoints) {
-        point->computeStiffToAccel();
+}
+
+// add up windows before mpi comms
+void Domain::combinePointWindows() const {
+    for (const std::shared_ptr<Point> &point: mPoints) {
+        point->combineWindows();
     }
 }
 
@@ -352,6 +303,13 @@ void Domain::mpiGatherSendRecv() const {
 // mpi phase 2: commWaitScatter
 void Domain::mpiWaitScatter() const {
     mMessaging->commWaitScatter();
+}
+
+// separate windows after mpi comms
+void Domain::separatePointWindows() const {
+    for (const std::shared_ptr<Point> &point: mPoints) {
+        point->separateWindows();
+    }
 }
 
 // initialize output
@@ -473,16 +431,7 @@ void Domain::doScanning(int tstep) const {
         return;
     }
     
-    // solid
-    for (const std::shared_ptr<SolidPoint> &point: mSolidPoints) {
-        point->doScanning(mWavefieldScanning->mTolFourierH2,
-                          mWavefieldScanning->mRelTolH2,
-                          mWavefieldScanning->mAbsTolH2,
-                          mWavefieldScanning->mMaxNumPeaks);
-    }
-    
-    // fluid
-    for (const std::shared_ptr<FluidPoint> &point: mFluidPoints) {
+    for (const std::shared_ptr<Point> &point: mPoints) {
         point->doScanning(mWavefieldScanning->mTolFourierH2,
                           mWavefieldScanning->mRelTolH2,
                           mWavefieldScanning->mAbsTolH2,
@@ -500,27 +449,13 @@ void Domain::reportScanning() const {
     std::vector<double> szBuffer;
     std::vector<int> nrBuffer;
     
-    // solid
-    for (const std::shared_ptr<SolidPoint> &point: mSolidPoints) {
+    for (const std::shared_ptr<Point> &point: mPoints) {
         if (!mMessaging->pointInSmallerRank(point)) {
             int scanNr = point->reportScanningNr();
             if (scanNr != -1) {
                 szBuffer.push_back(point->getCoords()(0));
                 szBuffer.push_back(point->getCoords()(1));
-                nrBuffer.push_back(point->getNr());
-                nrBuffer.push_back(scanNr);
-            }
-        }
-    }
-    
-    // fluid
-    for (const std::shared_ptr<FluidPoint> &point: mFluidPoints) {
-        if (!mMessaging->pointInSmallerRank(point)) {
-            int scanNr = point->reportScanningNr();
-            if (scanNr != -1) {
-                szBuffer.push_back(point->getCoords()(0));
-                szBuffer.push_back(point->getCoords()(1));
-                nrBuffer.push_back(point->getNr());
+                nrBuffer.push_back(point->getStartingNr());
                 nrBuffer.push_back(scanNr);
             }
         }
@@ -573,17 +508,8 @@ void Domain::reportScanning() const {
 // check stability
 void Domain::checkStability(int tstep, double t, double dt) const {
     std::shared_ptr<Point> unstablePoint = nullptr;
-    // solid
-    for (const std::shared_ptr<SolidPoint> &point: mSolidPoints) {
-        if (!point->stable()) {
-            unstablePoint = point;
-            break;
-        }
-    }
-    
-    // fluid
     if (!unstablePoint) {
-        for (const std::shared_ptr<FluidPoint> &point: mFluidPoints) {
+        for (const std::shared_ptr<Point> &point: mPoints) {
             if (!point->stable()) {
                 unstablePoint = point;
                 break;

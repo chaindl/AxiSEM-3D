@@ -18,8 +18,8 @@ class SolidForce: public SolidSource {
 public:
     // constructor
     SolidForce(std::unique_ptr<STF> &stf,
-               const std::shared_ptr<SolidElement> &element,
-               const eigen::CMatXN3 &pattern);
+               const std::shared_ptr<const Element> &element,
+               int m, const eigen::CMatXN3 &pattern);
     
     // apply source at a time step
     void apply(double time) const;

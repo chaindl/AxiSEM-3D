@@ -35,7 +35,7 @@ void Undulation::finishing3D() const {
 }
 
 // finished 3D properties
-void Undulation::finished3D(const Quad &myQuad) {
+void Undulation::finished3D(const Quad &myQuad, double winFrac) {
     // no undulation
     if (!mDeltaZ) {
         return;
@@ -50,7 +50,7 @@ void Undulation::finished3D(const Quad &myQuad) {
     // step 2: gradient
     static eigen::DMat2N sz;
     static eigen::DMatPP_RM ifPP;
-    const auto &grad = myQuad.createGradient<double>(sz, ifPP);
+    const auto &grad = myQuad.createGradient<double>(sz, ifPP, winFrac);
     grad->checkCompatibility(nr);
     grad->computeGrad3(sDeltaZ_Fourier, sDeltaZ_SPZ_Fourier, nr / 2 + 1);
     

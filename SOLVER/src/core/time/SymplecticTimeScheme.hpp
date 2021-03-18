@@ -14,6 +14,9 @@
 #include "TimeScheme.hpp"
 #include "numerical.hpp"
 #include <vector>
+#include <memory>
+
+class Point;
 
 class SymplecticTimeScheme: public TimeScheme {
 public:
@@ -29,12 +32,14 @@ public:
     
     //////////////////// point ////////////////////
     // create fields on a point
-    template <class Point>
-    static void createFields(Point &point) {
-        auto &f = point.getFields();
+    template <class SFPointWindow>
+    static void createFields(SFPointWindow &pw) {
+        auto &f = pw.getFields();
         int ndim = (int)f.mStiff.cols();
-        int nu_1 = point.getNu_1();
+        int nu_1 = pw.getNu_1();
+        int nr = pw.getNr();
         f.mStiff.resize(nu_1, ndim);
+        f.mStiffR.resize(nr, ndim);
         f.mDispl.resize(nu_1, ndim);
         f.mVeloc.resize(nu_1, ndim);
         f.mStiff.setZero();
@@ -43,10 +48,10 @@ public:
     }
     
     // update fields on a point
-    template <class Point>
-    static void update(Point &point,
+    template <class SFPointWindow>
+    static void update(SFPointWindow &pw,
                        numerical::Real pi_dt, numerical::Real kappa_dt) {
-        auto &f = point.getFields();
+        auto &f = pw.getFields();
         // update dt
         f.mVeloc += pi_dt * f.mStiff;
         f.mDispl += kappa_dt * f.mVeloc;
@@ -57,25 +62,9 @@ public:
     
 private:
     // launch fields on points
-    template <class Point>
-    void launch(const std::vector<std::shared_ptr<Point>> &points) const {
-        static const numerical::Real kappa_dt = sKappa[0] * mDt;
-        for (const std::shared_ptr<Point> &point: points) {
-            auto &f = point->getFields();
-            f.mDispl += kappa_dt * f.mVeloc;
-        }
-    }
-    
+    void launch(const std::vector<std::shared_ptr<Point>> &points) const;
     // update fields on points
-    template <class Point>
-    void update(const std::vector<std::shared_ptr<Point>> &points,
-                int iSubIter) const {
-        const numerical::Real pi_dt = sPi[iSubIter] * mDt;
-        const numerical::Real kappa_dt = sKappa[iSubIter] * mDt;
-        for (const std::shared_ptr<Point> &point: points) {
-            update(*point, pi_dt, kappa_dt);
-        }
-    }
+    void update(const std::vector<std::shared_ptr<Point>> &points, int iSubIter) const;
     
     
     //////////////////////////////////////////

@@ -8,20 +8,20 @@
 
 //  pointwise Nr(s,z)
 
-#ifndef NrFieldPointwise_hpp
-#define NrFieldPointwise_hpp
+#ifndef GeneralNrFieldPointwise_hpp
+#define GeneralNrFieldPointwise_hpp
 
-#include "NrField.hpp"
+#include "GeneralNrField.hpp"
 #include "RTreeND.hpp"
 
-class NrFieldPointwise: public NrField {
+class GeneralNrFieldPointwise: public GeneralNrField {
 public:
     // constructor
-    NrFieldPointwise(const std::string &fname, double factor,
+    GeneralNrFieldPointwise(const std::string &fname, double factor,
                      double distTolExact);
     
     // get nr by (s, z)
-    eigen::IColX getNrAtPoints(const eigen::DMatX2_RM &sz) const;
+    int getNrAtPoint(const eigen::DCol2 &sz) const;
     
     // verbose
     std::string verbose() const;
@@ -43,4 +43,4 @@ private:
     long mSumNrStart = -1;
 };
 
-#endif /* NrFieldPointwise_hpp */
+#endif /* GeneralNrFieldPointwise_hpp */

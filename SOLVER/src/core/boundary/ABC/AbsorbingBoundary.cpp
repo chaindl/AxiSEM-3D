@@ -12,8 +12,7 @@
 
 // domain
 #include "Messaging.hpp"
-#include "SolidPoint.hpp"
-#include "FluidPoint.hpp"
+#include "Point.hpp"
 #include "bstring.hpp"
 #include "vector_tools.hpp"
 
@@ -23,25 +22,25 @@ countInfo(const Messaging &msg) const {
     std::map<std::string, int> countMap;
     // Clayton in solid
     for (const auto &clayton: mClaytonSolids) {
-        if (!msg.pointInSmallerRank(clayton->getPoint())) {
+        if (!msg.pointInSmallerRank(clayton->getPointWindow())) {
             vector_tools::aggregate(countMap, bstring::typeName(*clayton), 1);
         }
     }
     // Clayton in fluid
     for (const auto &clayton: mClaytonFluids) {
-        if (!msg.pointInSmallerRank(clayton->getPoint())) {
+        if (!msg.pointInSmallerRank(clayton->getPointWindow())) {
             vector_tools::aggregate(countMap, bstring::typeName(*clayton), 1);
         }
     }
     // sponge in solid
     for (const auto &sponge: mSpongeSolids) {
-        if (!msg.pointInSmallerRank(sponge->getPoint())) {
+        if (!msg.pointInSmallerRank(sponge->getPointWindow())) {
             vector_tools::aggregate(countMap, "SpongeSolid", 1);
         }
     }
     // sponge in fluid
     for (const auto &sponge: mSpongeFluids) {
-        if (!msg.pointInSmallerRank(sponge->getPoint())) {
+        if (!msg.pointInSmallerRank(sponge->getPointWindow())) {
             vector_tools::aggregate(countMap, "SpongeFluid", 1);
         }
     }
