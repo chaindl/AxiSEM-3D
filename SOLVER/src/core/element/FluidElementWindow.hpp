@@ -49,9 +49,6 @@ public:
     int getDimStrain() const {return spectral::nPEM * 3;};
     
     /////////////////////////// pointer access //////////////////////////
-    FluidElementWindow &getFluidElementWindow() {
-        return *this;
-    };
     PointWindow &getPointWindow(int inpt) const;
     
     /////////////////////////// time loop ///////////////////////////

@@ -17,7 +17,7 @@
 #include "bstring.hpp"
 // measure
 #include "timer.hpp"
-
+#include <iostream>
 using spectral::nPEM;
 
 // constructor
@@ -32,6 +32,7 @@ mInFourier((mPRT ? mPRT->is1D() : true) && mElastic->is1D()),
 mPointWindows(pointWindows) {
     // construct derived
     constructDerived();
+    mSE = false;
 }
 
 // copy constructor
@@ -285,6 +286,7 @@ void SolidElementWindow::prepareMomentSource() const {
             fft::gFFT_N6.addNR(mNr);
         }
     }
+    mSE = true;
 }
 
 // add moment source (moment tensor given in SPZ)
@@ -413,7 +415,6 @@ prepareWavefieldOutput(const channel::solid::ChannelOptions &chops) {
 void SolidElementWindow::getDisplField(eigen::CMatXN3 &displ, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
     // collect displacement from points
     collectDisplFromPointWindows(sDisplSpherical_FR);
-    
     // coord
     if (needRTZ) {
         transform->transformSPZ_RTZ3(sDisplSpherical_FR, mNu_1);
@@ -421,6 +422,7 @@ void SolidElementWindow::getDisplField(eigen::CMatXN3 &displ, const std::shared_
     
     // copy
     mapPPvsN::PP2N(sDisplSpherical_FR, displ, mNu_1);
+    //if (!mSE && displ.real().norm() > 0) std::cout << displ << std::endl << std::endl;
 }
 
 // nabla field

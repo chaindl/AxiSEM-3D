@@ -227,7 +227,7 @@ void SE_Model::release(const ABC &abc, const LocalMesh &localMesh,
     for (int icom = 0; icom < localMesh.mCommProc.size(); icom++) {
         // create and add message on a single rank
         int rankOther = localMesh.mCommProc[icom];
-        std::vector<MessageRank::MeshWindowSum> meshPoints;
+        std::vector<MessageRank::MeshPoint> meshPoints;
         for (int igll: localMesh.mCommMyGLL[icom]) {
             meshPoints.push_back(std::make_tuple(
                 mGLLPoints[igll].getGlobalTag(),

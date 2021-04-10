@@ -181,6 +181,7 @@ public:
         // elementOps
         for (const std::unique_ptr<ElementOpT> &eop: mElementOps) {
             eop->setInGroup(mDumpIntv, mChannelOptions, (int)mPhis.size());
+            eop->resetBuffer();
         }
     }
     
@@ -234,6 +235,10 @@ public:
         // IO
         // check zero station inside
         mIO->dumpToFile(mBufferTime, mBufferFields, mBufferLine);
+        
+        for (const std::unique_ptr<ElementOpT> &eop: mElementOps) {
+            eop->resetBuffer();
+        }
         
         // rewind buffer line
         mBufferLine = 0;

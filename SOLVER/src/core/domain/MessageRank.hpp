@@ -28,16 +28,18 @@ public:
     // NOTE: it may contain a solid point or a fluid point or both
     //       std::map cannot be used because it changes the order of insertion
     typedef std::tuple<int,
-    std::vector<std::shared_ptr<WindowSum>>> MeshWindowSum;
+    std::vector<std::shared_ptr<WindowSum>>> MeshPoint;
     
     // constructor
-    MessageRank(int rankOther, const std::vector<MeshWindowSum> &MeshWindowSums);
+    MessageRank(int rankOther, const std::vector<MeshPoint> &MeshPoints);
     
 private:
     // allocate buffer
-    void allocateBuffer();
+    void setUpWindowSums();
     
 public:
+    void finalizeComms();
+
     // gather from points
     void gatherFromPointWindows();
     
@@ -67,7 +69,7 @@ private:
     const int mRankOther;
     
     // my points involved in this 1-to-1 communication
-    std::vector<MeshWindowSum> mMeshWindowSums;
+    std::vector<MeshPoint> mMeshPoints;
     
     // buffers
     eigen::RColX mBufferSend = eigen::RColX(0);

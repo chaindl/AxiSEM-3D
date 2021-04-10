@@ -13,14 +13,13 @@
 #include "Domain.hpp"
 #include "timer.hpp"
 #include "PointWindow.hpp"
-#include "FluidPointWindow.hpp"
-#include "SolidPointWindow.hpp"
 
 // solve
 void SymplecticTimeScheme::solve() const {
     // loop timer
     std::vector<std::string> timerNames = {
         "TOTAL", "SOURCE", "STIFFNESS", "MASS_TERM", "BOUNDARIES",
+        "WINDOW_INTERPOLATION",
         "TIME_MARCH", "MPI_COMM", "WAVE_OUTPUT", "SCANNING"};
     std::map<std::string, SimpleTimer> timers;
     for (const std::string &name: timerNames) {
@@ -99,6 +98,11 @@ void SymplecticTimeScheme::solve() const {
             mDomain->separatePointWindows();
             timers.at("WINDOW_INTERPOLATION").pause();
             
+            // boundary conditions after assembling stiffness
+            timers.at("BOUNDARIES").resume();
+            mDomain->applyBC_AfterAssemblingStiff();
+            timers.at("BOUNDARIES").pause();
+            
             // stiff => accel
             timers.at("MASS_TERM").resume();
             mDomain->computeStiffToAccel();
@@ -150,12 +154,11 @@ void SymplecticTimeScheme::launch(const std::vector<std::shared_ptr<Point>> &poi
     static const numerical::Real kappa_dt = sKappa[0] * mDt;
     for (const std::shared_ptr<Point> &point: points) {
         for (const std::shared_ptr<PointWindow> &pw: point->getWindows()) {
-            if (pw->getFluidPointWindow()) {
-                auto &f = pw->getFluidPointWindow()->getFields();
+            if (pw->isFluid()) {
+                auto &f = pw->getFluidFields();
                 f.mDispl += kappa_dt * f.mVeloc;
-            }
-            if (pw->getSolidPointWindow()) {
-                auto &f = pw->getSolidPointWindow()->getFields();
+            } else {
+                auto &f = pw->getSolidFields();
                 f.mDispl += kappa_dt * f.mVeloc;
             }
         }
@@ -169,8 +172,11 @@ void SymplecticTimeScheme::update(const std::vector<std::shared_ptr<Point>> &poi
     const numerical::Real kappa_dt = sKappa[iSubIter] * mDt;
     for (const std::shared_ptr<Point> &point: points) {
         for (const std::shared_ptr<PointWindow> &pw: point->getWindows()) {
-            if (pw->getFluidPointWindow()) update(*pw->getFluidPointWindow(), pi_dt, kappa_dt);
-            if (pw->getSolidPointWindow()) update(*pw->getSolidPointWindow(), pi_dt, kappa_dt);
+            if (pw->isFluid()) {
+                update(pw->getFluidFields(), pi_dt, kappa_dt);
+            } else {
+                update(pw->getSolidFields(), pi_dt, kappa_dt);
+            }
         }
     }
 }

@@ -90,6 +90,7 @@ public:
         // stations
         for (const std::unique_ptr<StationT> &st: mStations) {
             st->setInGroup(mDumpIntv, mChannelOptions);
+            st->resetBuffer();
         }
     }
     
@@ -140,6 +141,10 @@ public:
         // IO
         // check zero station inside
         mIO->dumpToFile(mBufferTime, mBufferFields, mBufferLine);
+        
+        for (const std::unique_ptr<StationT> &st: mStations) {
+            st->resetBuffer();
+        }
         
         // rewind buffer line
         mBufferLine = 0;

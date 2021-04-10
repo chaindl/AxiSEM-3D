@@ -13,20 +13,20 @@
 
 // point
 #include <memory>
-#include "SolidPointWindow.hpp"
+#include "PointWindow.hpp"
 class Point;
 
 class ClaytonSolid {
 public:
     // constructor
-    ClaytonSolid(const std::shared_ptr<SolidPointWindow> &spw):
-    mSolidPointWindow(spw) {
+    ClaytonSolid(const std::shared_ptr<PointWindow> &spw):
+    mPointWindow(spw) {
         // nothing
     }
     
     // get point
-    const std::shared_ptr<const SolidPointWindow> getPointWindow() const {
-        return mSolidPointWindow;
+    const std::shared_ptr<const PointWindow> getPointWindow() const {
+        return mPointWindow;
     }
     
     // destructor
@@ -37,7 +37,7 @@ public:
     
 protected:
     // point
-    const std::shared_ptr<SolidPointWindow> mSolidPointWindow;
+    const std::shared_ptr<PointWindow> mPointWindow;
 };
 
 #endif /* ClaytonSolid_hpp */

@@ -27,23 +27,32 @@ PointWindow(windowSumPhi, mass, point) {
 
 /////////////////////////// time loop ///////////////////////////
 void FluidPointWindow::transformToPhysical() {
-    // Nyquist
-    if (mNr % 2 == 0) {
-        mFields.mStiff.bottomRows(1).imag().setZero();
+    if (!mInFourier) {
+        fft::gFFT_1.computeC2R(mFields.mStiff, mFields.mStiffR, mNr);
     }
-  
-    if (!mInFourier) fft::gFFT_1.computeC2R(mFields.mStiff, mFields.mStiffR, mNr);
+}
+
+void FluidPointWindow::maskNyquist() {
+    if (mNr % 2 == 0) mFields.mStiff.bottomRows(1).imag().setZero();
 }
 
 // stiff to accel
 void FluidPointWindow::computeStiffToAccel() {
     // store stiffness for delta output
-    if (mFields.mDeltaStore.rows() > 0) {
-        fft::gFFT_1.computeR2C(mFields.mStiffR, mFields.mDeltaStore, mNr);
+    if (mFluidStore.mDeltaStore.rows() > 0) {
+        if (mInFourier) {
+            mFluidStore.mDeltaStore = mFields.mStiff;
+        } else {
+            fft::gFFT_1.computeR2C(mFields.mStiffR, mFluidStore.mDeltaStore, mNr);
+        }
     }
     
     // stiff to accel in-place
-    mMass->computeAccel(mFields.mStiffR);
+    if (mInFourier) {
+        mMass->computeAccel(mFields.mStiff);
+    } else {
+        mMass->computeAccel(mFields.mStiffR);
+    }
 }
 
 void FluidPointWindow::transformToFourier() {
@@ -52,15 +61,22 @@ void FluidPointWindow::transformToFourier() {
 
 void FluidPointWindow::applyPressureSource() {
     // apply pressure source
-    if (mFields.mPressureSource.rows() > 0) {
+    if (mFluidStore.mPressureSource.rows() > 0) {
         // add pressure to new acceleration
-        mFields.mStiff += mFields.mPressureSource;
+        mFields.mStiff += mFluidStore.mPressureSource;
         // zero pressure for the next time step
-        mFields.mPressureSource.setZero();
+        mFluidStore.mPressureSource.setZero();
     }
     
     // store acceleration for pressure output
-    if (mFields.mPressureStore.rows() > 0) {
-        mFields.mPressureStore = mFields.mStiff;
+    if (mFluidStore.mPressureStore.rows() > 0) {
+        mFluidStore.mPressureStore = mFields.mStiff;
     }
+}
+
+void FluidPointWindow::applyAxialBC() {    
+    transformToFourier();
+    mFields.mStiff.bottomRows(mNu_1 - 1).setZero();
+    maskNyquist();
+    transformToPhysical();
 }

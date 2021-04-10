@@ -214,7 +214,6 @@ public:
                                          "Invalid channel setting.");
             }
         }
-        field.setZero();
     }
     
     ////////// data //////////

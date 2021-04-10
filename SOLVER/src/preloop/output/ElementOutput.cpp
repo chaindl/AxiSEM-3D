@@ -454,7 +454,7 @@ void ElementOutput::release(const SE_Model &sem, Domain &domain, double dt,
         }
         
         // add elements to group
-        bool hasWindows = true;
+        bool hasWindows = false;
         for (int ielem = 0; ielem < opQuadsUse.size(); ielem++) {
             const std::vector<int> &ipnts =
             (elgrp->mEdgeDim < 0) ? ipntsElemUniform : ipntsElem[ielem];

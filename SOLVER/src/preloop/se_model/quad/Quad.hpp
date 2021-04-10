@@ -238,7 +238,7 @@ private:
     // <1> nr
     // <2> tags for GLL access
     // <3> overlap with next window (otherwise unclear for windows with only 1 point overlap)
-    std::vector<std::unique_ptr<std::tuple<eigen::DRow4, eigen::IRowN, int, bool>>> mWindows;
+    std::vector<std::unique_ptr<std::tuple<eigen::DRow4, eigen::IRowN, eigen::IRowN, bool>>> mWindows;
     
     ////////////// components //////////////
     // mapping

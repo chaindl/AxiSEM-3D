@@ -49,9 +49,6 @@ public:
     bool elasticInRTZ() const {return mElastic->inRTZ();};
     
     /////////////////////////// pointer access //////////////////////////
-    SolidElementWindow &getSolidElementWindow() {
-        return *this;
-    };
     PointWindow &getPointWindow(int inpt) const;
     
     /////////////////////////// time loop ///////////////////////////
@@ -130,7 +127,7 @@ private:
     
     // 1D element in Fourier space
     const bool mInFourier;
-    
+    mutable bool mSE;
     // points
     std::array<std::shared_ptr<SolidPointWindow>, spectral::nPEM> mPointWindows;
     

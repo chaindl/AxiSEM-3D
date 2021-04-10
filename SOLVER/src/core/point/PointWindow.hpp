@@ -14,10 +14,22 @@
 #include "eigen_point.hpp"
 #include "Mass.hpp"
 #include "bstring.hpp"
-
+#include <iostream>
 class Point;
 class SolidPointWindow;
 class FluidPointWindow;
+
+template <int dims>
+struct Fields {
+    typedef Eigen::Matrix<numerical::Real, Eigen::Dynamic, dims> RMat;
+    typedef Eigen::Matrix<numerical::ComplexR, Eigen::Dynamic, dims> CMat;
+    
+    CMat mStiff = CMat(0, dims);
+    RMat mStiffR = RMat(0, dims);
+    CMat mDispl = CMat(0, dims);
+    CMat mVeloc = CMat(0, dims);
+    CMat mAccel = CMat(0, dims);
+};
 
 class PointWindow {
 public:
@@ -33,6 +45,8 @@ public:
     // destructor
     virtual ~PointWindow() = default;
     
+    virtual bool isFluid() const = 0;
+    
     // type info
     std::string typeInfo() const {
         return bstring::typeName(*this) + "$" + bstring::typeName(*mMass);
@@ -45,15 +59,29 @@ public:
         return ss.str();
     }
     
-    void setInFourier(bool hasOverlap) {
-        if (!hasOverlap && !mMass->is3D()) {
-            mInFourier = true;
-        }
+    void setInFourier(bool inFourier) {
+        mInFourier = inFourier;
     }
     
-    virtual FluidPointWindow* getFluidPointWindow() const {return nullptr;};
-    virtual SolidPointWindow* getSolidPointWindow() const {return nullptr;};
+    bool is3D() {
+        return mMass->is3D();
+    }
     
+    virtual Fields<1> &getFluidFields() {
+        throw std::runtime_error("PointWindow || requesting fluid fields from solid window.");
+    }
+    
+    virtual Fields<3> &getSolidFields() {
+        throw std::runtime_error("PointWindow || requesting solid fields from fluid window.");
+    }
+    
+    virtual const Fields<1> &getFluidFields() const {
+        throw std::runtime_error("PointWindow || requesting fluid fields from solid window.");
+    }
+    
+    virtual const Fields<3> &getSolidFields() const {
+        throw std::runtime_error("PointWindow || requesting solid fields from fluid window.");
+    }
     /////////////////////////// time loop ///////////////////////////
     
     virtual void randomDispl() = 0;
@@ -67,8 +95,11 @@ public:
     virtual void transformToPhysical() = 0;
     virtual void computeStiffToAccel() = 0;
     virtual void transformToFourier() = 0;
-    virtual void applyPressureSource() = 0;
-    
+    virtual void applyPressureSource() {
+        //nothing
+    };
+    virtual void maskNyquist() = 0;
+    virtual void applyAxialBC() = 0;
     /////////////////////////// properties ///////////////////////////
     // nr
     int getNr() const {

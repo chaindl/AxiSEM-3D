@@ -9,13 +9,13 @@
 //  Clayton-Enquist ABC for fluid points in 1D
 
 #include "ClaytonFluid1D.hpp"
-#include "FluidPointWindow.hpp"
+#include "PointWindow.hpp"
 
 // apply ABC
 void ClaytonFluid1D::apply() const {
     // get fields
-    const eigen::CColX &veloc = mFluidPointWindow->getFields().mVeloc;
-    eigen::CColX &stiff = mFluidPointWindow->getFields().mStiff;
+    const eigen::CColX &veloc = mPointWindow->getFluidFields().mVeloc;
+    eigen::CColX &stiff = mPointWindow->getFluidFields().mStiff;
     
     // apply
     stiff -= veloc * mAreaOverRhoVp;

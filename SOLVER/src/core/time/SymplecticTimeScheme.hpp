@@ -32,12 +32,9 @@ public:
     
     //////////////////// point ////////////////////
     // create fields on a point
-    template <class SFPointWindow>
-    static void createFields(SFPointWindow &pw) {
-        auto &f = pw.getFields();
+    template <typename Fields>
+    static void createFields(Fields &f, int nu_1, int nr) {
         int ndim = (int)f.mStiff.cols();
-        int nu_1 = pw.getNu_1();
-        int nr = pw.getNr();
         f.mStiff.resize(nu_1, ndim);
         f.mStiffR.resize(nr, ndim);
         f.mDispl.resize(nu_1, ndim);
@@ -48,10 +45,9 @@ public:
     }
     
     // update fields on a point
-    template <class SFPointWindow>
-    static void update(SFPointWindow &pw,
+    template <typename Fields>
+    static void update(Fields &f,
                        numerical::Real pi_dt, numerical::Real kappa_dt) {
-        auto &f = pw.getFields();
         // update dt
         f.mVeloc += pi_dt * f.mStiff;
         f.mDispl += kappa_dt * f.mVeloc;

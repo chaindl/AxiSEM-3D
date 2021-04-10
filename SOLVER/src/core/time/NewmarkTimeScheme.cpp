@@ -13,14 +13,13 @@
 #include "Domain.hpp"
 #include "timer.hpp"
 #include "PointWindow.hpp"
-#include "FluidPointWindow.hpp"
-#include "SolidPointWindow.hpp"
-
+#include <iostream>
 // solve
 void NewmarkTimeScheme::solve() const {
     // loop timers
     std::vector<std::string> timerNames = {
         "TOTAL", "SOURCE", "STIFFNESS", "MASS_TERM", "BOUNDARIES",
+        "WINDOW_INTERPOLATION",
         "TIME_MARCH", "MPI_COMM", "WAVE_OUTPUT", "SCANNING"};
     std::map<std::string, SimpleTimer> timers;
     for (const std::string &name: timerNames) {
@@ -94,6 +93,11 @@ void NewmarkTimeScheme::solve() const {
         mDomain->separatePointWindows();
         timers.at("WINDOW_INTERPOLATION").pause();
         
+        // boundary conditions after assembling stiffness
+        timers.at("BOUNDARIES").resume();
+        mDomain->applyBC_AfterAssemblingStiff();
+        timers.at("BOUNDARIES").pause();
+        
         // stiff => accel
         timers.at("MASS_TERM").resume();
         mDomain->computeStiffToAccel();
@@ -143,8 +147,11 @@ void NewmarkTimeScheme::update(const std::vector<std::shared_ptr<Point>> &points
     static const numerical::Real half_dt_dt = .5 * mDt * mDt;
     for (const std::shared_ptr<Point> &point: points) {
         for (const std::shared_ptr<PointWindow> &pw: point->getWindows()) {
-            if (pw->getFluidPointWindow()) update(*pw->getFluidPointWindow(), dt, half_dt, half_dt_dt);
-            if (pw->getSolidPointWindow()) update(*pw->getSolidPointWindow(), dt, half_dt, half_dt_dt);
+            if (pw->isFluid()) {
+                update(pw->getFluidFields(), dt, half_dt, half_dt_dt);
+            } else {
+                update(pw->getSolidFields(), dt, half_dt, half_dt_dt);
+            }
         }
     }
 }

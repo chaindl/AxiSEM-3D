@@ -58,6 +58,7 @@ namespace eigen {
     
     ///////// Nr Windows /////////
     typedef Eigen::Matrix<double, Dynamic, 2> DMatX2;
+    typedef Eigen::Matrix<int, Dynamic, nPEM> IMatXN;
     typedef Eigen::Matrix<int, Dynamic, 4> IMatX4;
 }
 

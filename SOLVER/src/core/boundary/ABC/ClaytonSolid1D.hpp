@@ -18,7 +18,7 @@
 class ClaytonSolid1D: public ClaytonSolid {
 public:
     // constructor
-    ClaytonSolid1D(const std::shared_ptr<SolidPointWindow> &spw,
+    ClaytonSolid1D(const std::shared_ptr<PointWindow> &spw,
                    double rhoVp, double rhoVs, double area, double theta):
     ClaytonSolid(spw),
     mRSA_CosT2_p_RPA_SinT2(rhoVs * area * cos(theta) * cos(theta) +

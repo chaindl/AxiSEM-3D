@@ -10,13 +10,13 @@
 //  theta: angle between surface normal and z-axis
 
 #include "ClaytonSolid1D.hpp"
-#include "SolidPointWindow.hpp"
+#include "PointWindow.hpp"
 
 // apply ABC
 void ClaytonSolid1D::apply() const {
     // get fields
-    const eigen::CMatX3 &veloc = mSolidPointWindow->getFields().mVeloc;
-    eigen::CMatX3 &stiff = mSolidPointWindow->getFields().mStiff;
+    const eigen::CMatX3 &veloc = mPointWindow->getSolidFields().mVeloc;
+    eigen::CMatX3 &stiff = mPointWindow->getSolidFields().mStiff;
     
     // s, z
     stiff.col(0) -= (mRSA_CosT2_p_RPA_SinT2 * veloc.col(0) +

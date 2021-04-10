@@ -60,7 +60,9 @@ public:
                 tags(mn) = mWindows.size();
                 mWindows.push_back(wins[mn]);
             }
+            mNumNewWins = mWindows.size();
             allocateNewWindows();
+            mNumNewWins = 0;
             return tags;
         }
         
@@ -416,7 +418,6 @@ public:
             row += 3;
         }
         eigen::IColX winTags = addWindows(wins);
-        
         for (int m = 0 ; m < M; m++) {
             // size info
             int sizeMassFluid = (int)round(buffer(row, 0));

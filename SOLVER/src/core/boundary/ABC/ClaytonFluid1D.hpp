@@ -17,7 +17,7 @@
 class ClaytonFluid1D: public ClaytonFluid {
 public:
     // constructor
-    ClaytonFluid1D(const std::shared_ptr<FluidPointWindow> &fpw,
+    ClaytonFluid1D(const std::shared_ptr<PointWindow> &fpw,
                    double rhoVp, double area):
     ClaytonFluid(fpw), mAreaOverRhoVp(area / rhoVp) {
         // nothing

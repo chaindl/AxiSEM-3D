@@ -222,24 +222,24 @@ release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain) {
         // sponge ABC
         if (abc.sponge() && mCountGammasAdded[m] > 0) {
             if (fpw) {
-                std::unique_ptr<const Sponge<FluidPointWindow>> sponge_f = nullptr;
+                std::unique_ptr<const Sponge<1>> sponge_f = nullptr;
                 if (mGamma[m].rows() == 1) {
                     sponge_f = std::make_unique<const
-                    Sponge<FluidPointWindow>>(fpw, mGamma[m](0) / mCountGammasAdded[m]);
+                    Sponge<1>>(fpw, mGamma[m](0) / mCountGammasAdded[m]);
                 } else {
                     sponge_f = std::make_unique<const
-                    Sponge<FluidPointWindow>>(fpw, mGamma[m] / mCountGammasAdded[m]);
+                    Sponge<1>>(fpw, mGamma[m] / mCountGammasAdded[m]);
                 }
                 domain.getAbsorbingBoundary()->addSpongeFluid(sponge_f);
             }
             if (spw) {
-                std::unique_ptr<const Sponge<SolidPointWindow>> sponge_s = nullptr;
+                std::unique_ptr<const Sponge<3>> sponge_s = nullptr;
                 if (mGamma[m].rows() == 1) {
                     sponge_s = std::make_unique<const
-                    Sponge<SolidPointWindow>>(spw, mGamma[m](0) / mCountGammasAdded[m]);
+                    Sponge<3>>(spw, mGamma[m](0) / mCountGammasAdded[m]);
                 } else {
                     sponge_s = std::make_unique<const
-                    Sponge<SolidPointWindow>>(spw, mGamma[m] / mCountGammasAdded[m]);
+                    Sponge<3>>(spw, mGamma[m] / mCountGammasAdded[m]);
                 }
                 domain.getAbsorbingBoundary()->addSpongeSolid(sponge_s);
             }

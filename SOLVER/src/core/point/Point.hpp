@@ -50,6 +50,7 @@ public:
     /////////////////////////// time loop ///////////////////////////
     void combineWindows() {
         for (auto win: mWindows) {
+            //win->transformToPhysical(true);
             win->transformToPhysical();
         }
         for (auto ws: mWindowSums) {
@@ -61,7 +62,6 @@ public:
         for (auto ws: mWindowSums) {
             ws->scatterStiffToWindows();
         }
-        
     };
 
     // stiff to accel
@@ -69,6 +69,7 @@ public:
         for (auto win: mWindows) {
             win->computeStiffToAccel();
             win->transformToFourier();
+            win->maskNyquist();
             win->applyPressureSource();
         }
     };
@@ -125,13 +126,13 @@ public:
     
     const std::vector<std::shared_ptr<PointWindow>> &getWindows() const {return mWindows;};
     const std::vector<std::shared_ptr<WindowSum>> &getWindowSums() const {return mWindowSums;};
-
+    
     /////////////////////// wavefield scanning ///////////////////////
     // enable scanning
     // need this abstract for vertex-only option
     void enableScanning() {
         if (mWindowSums[0]->onlyOneWindow()) {
-            mWindows[0]->enableScanning(); // this works because in solid-fluid windows the first window is solid
+            mWindows[0]->enableScanning();
         } else {
             throw std::runtime_error("Point::enableScanning || Wavefield scanning not implemented for multiple windows.");
         }

@@ -101,16 +101,6 @@ public:
     
     virtual void randomPointWindowsDispl() const = 0;
     virtual void resetPointWindowsToZero() const = 0;
-    
-    virtual FluidElementWindow &getFluidElementWindow() const {
-        throw std::runtime_error("ElementWindow::getFluidElementWindow || "
-                                 "requested fluid window from solid medium");
-    };
-    virtual SolidElementWindow &getSolidElementWindow() const {
-        throw std::runtime_error("ElementWindow::getSolidElementWindow || "
-                                 "requested solid window from fluid medium");
-    };
-    
         
     /////////////////////////// time loop ///////////////////////////
     // displacement to stiffness
@@ -120,6 +110,28 @@ public:
     virtual void transformStressToFourier(const std::shared_ptr<const CoordTransform> &transform) const = 0;
     virtual void stressToStiffness() const = 0;
     virtual void addOverlapToStrain(const eigen::RColX &strain, const int side, const int dim) const = 0;
+    
+    /////////////////////////// source ///////////////////////////
+    virtual void prepareForceSource() const {
+        throw std::runtime_error("ElementWindow::prepareForceSource || force source must be in solid.");
+    }
+    virtual void addForceSource(const eigen::CMatXN3 &force, int nu_1_force) const {
+        throw std::runtime_error("ElementWindow::addForceSource || force source must be in solid.");
+    }
+    virtual void prepareMomentSource() const {
+        throw std::runtime_error("ElementWindow::prepareMomentSource || moment source must be in solid.");
+    }
+    virtual void addMomentSource(const eigen::CMatXN6 &moment, int nu_1_moment,
+                         const std::shared_ptr<const CoordTransform> &transform) const {
+        throw std::runtime_error("ElementWindow::addMomentSource || moment source must be in solid.");
+    }
+    virtual void preparePressureSource() const {
+        throw std::runtime_error("ElementWindow::prepareMomentSource || pressure source must be in fluid.");
+    }
+    virtual void addPressureSource(const eigen::CMatXN &pressure,
+                           int nu_1_pressure) const {
+        throw std::runtime_error("ElementWindow::addMomentSource || pressure source must be in fluid.");
+    }
     
     /////////////////////////// output ///////////////////////////
     
@@ -177,10 +189,10 @@ private:
     
 protected:
     // gradient operator
-    const std::unique_ptr<const GradQuad> mGradQuad;
+    const std::unique_ptr<const GradQuad> mGradQuad = nullptr;
     
     // particle relabelling
-    const std::unique_ptr<const PRT> mPRT;
+    const std::unique_ptr<const PRT> mPRT = nullptr;
     
     // order
     int mNr = 0;

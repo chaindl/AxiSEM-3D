@@ -32,7 +32,7 @@
 
 // dt
 #include "geodesy.hpp"
-
+#include <iostream>
 // release
 #include "Domain.hpp"
 #include "Element.hpp"
@@ -133,7 +133,7 @@ void Quad::setupGLL(const ABC &abc, const LocalMesh &localMesh,
     }
 
     // setup point windows
-    eigen::IMatXX mWinTags;
+    eigen::IMatXN winTags = eigen::IMatXN::Constant(getM(), spectral::nPEM, -1);
     for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
         int igll = localMesh.mElementGLL(mLocalTag, ipnt);
         std::vector<eigen::DMatX2> wins_GLL(getM());
@@ -144,9 +144,12 @@ void Quad::setupGLL(const ABC &abc, const LocalMesh &localMesh,
             window_tools::wrapPhi(phi);
             wins_GLL[m].col(0) = phi;
         }
-        mWinTags.col(ipnt) = GLLPoints[igll].addWindows(wins_GLL);
+        winTags.col(ipnt) = GLLPoints[igll].addWindows(wins_GLL);
     }
-
+    for (int m = 0; m < getM(); m++) {
+        std::get<2>(*mWindows[m]) = winTags.row(m);
+    }
+   
     // add mass
     for (int m = 0; m < getM(); m++) {
         const eigen::arN_DColX &J_PRT = mUndulation[m]->getMassJacobian(sz);
@@ -154,7 +157,7 @@ void Quad::setupGLL(const ABC &abc, const LocalMesh &localMesh,
         
         for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
             int igll = localMesh.mElementGLL(mLocalTag, ipnt);
-            GLLPoints[igll].addMass(std::get<2>(*mWindows[m]), mass[ipnt], mFluid3D[m]);
+            GLLPoints[igll].addMass(std::get<2>(*mWindows[m])(ipnt), mass[ipnt], mFluid3D[m]);
         }
     }
     
@@ -175,7 +178,7 @@ void Quad::setupGLL(const ABC &abc, const LocalMesh &localMesh,
             for (int ip = 0; ip < spectral::nPED; ip++) {
                 int igll = localMesh.mElementGLL(mLocalTag, ipnts[ip]);
                 // normal must point from fluid to solid
-                GLLPoints[igll].addNormalSF(std::get<2>(*mWindows[m]), 
+                GLLPoints[igll].addNormalSF(std::get<2>(*mWindows[m])(ipnts[ip]),
                     -mUndulation[m]->computeNormal3D(normal1D.col(ip), sz, ipnts[ip]));
             }
         }
@@ -198,7 +201,7 @@ void Quad::setupGLL(const ABC &abc, const LocalMesh &localMesh,
                 for (int ip = 0; ip < spectral::nPED; ip++) {
                     int ipnt = ipnts[ip];
                     int igll = localMesh.mElementGLL(mLocalTag, ipnt);
-                    GLLPoints[igll].addClaytonABC(std::get<2>(*mWindows[m]), key, mFluid3D[m], 
+                    GLLPoints[igll].addClaytonABC(std::get<2>(*mWindows[m])(ipnt), key, mFluid3D[m], 
                                     mUndulation[m]->computeNormal3D(normal1D.col(ip), sz, ipnts[ip]),
                                     rho[ipnt], vp[ipnt], vs[ipnt]);
                 }
@@ -284,7 +287,7 @@ void Quad::setupGLL(const ABC &abc, const LocalMesh &localMesh,
                     // release
                     if (gamma.norm() > numerical::dEpsilon) {
                         int igll = localMesh.mElementGLL(mLocalTag, ipnt);
-                        GLLPoints[igll].addGamma(std::get<2>(*mWindows[m]), gamma);
+                        GLLPoints[igll].addGamma(std::get<2>(*mWindows[m])(ipnt), gamma);
                     }
                 }
             }
@@ -304,7 +307,7 @@ void Quad::setupGLL(const ABC &abc, const LocalMesh &localMesh,
             const eigen::arP_DColX &sumRhoDepth = mOceanLoad[m]->getPointwise();
             for (int ip = 0; ip < spectral::nPED; ip++) {
                 int igll = localMesh.mElementGLL(mLocalTag, ipnts[ip]);
-                GLLPoints[igll].addOceanLoad(std::get<2>(*mWindows[m]), 
+                GLLPoints[igll].addOceanLoad(std::get<2>(*mWindows[m])(ipnts[ip]), 
                     mUndulation[m]->computeNormal3D(normal1D.col(ip), sz, ipnts[ip]), 
                     sumRhoDepth[ip]);
             }
@@ -328,6 +331,13 @@ void Quad::setupGLL(const ABC &abc, const LocalMesh &localMesh,
         for (int ipnt: ipnts) {
             int igll = localMesh.mElementGLL(mLocalTag, ipnt);
             GLLPoints[igll].setSurface();
+        }
+    }
+    
+    for (int m = 0; m < getM(); m++) {
+        for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
+            int igll = localMesh.mElementGLL(mLocalTag, ipnt);
+            GLLPoints[igll].exchange3DInfoBetweenWindows();
         }
     }
 }
@@ -478,7 +488,7 @@ void Quad::release(const LocalMesh &localMesh,
             std::array<std::shared_ptr<FluidPointWindow>, spectral::nPEM> wins;
             for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
                 int igll = localMesh.mElementGLL(mLocalTag, ipnt);
-                wins[ipnt] = GLLPoints[igll].getFluidPointWindow(std::get<2>(*mWindows[m]));
+                wins[ipnt] = GLLPoints[igll].getFluidPointWindow(std::get<2>(*mWindows[m])(ipnt));
             }
             eleWins.push_back(std::make_unique<FluidElementWindow>(grad, prt, acoustic, wins, overlap));
         } else {
@@ -487,7 +497,7 @@ void Quad::release(const LocalMesh &localMesh,
             std::array<std::shared_ptr<SolidPointWindow>, spectral::nPEM> wins;
             for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
                 int igll = localMesh.mElementGLL(mLocalTag, ipnt);
-                wins[ipnt] = GLLPoints[igll].getSolidPointWindow(std::get<2>(*mWindows[m]));
+                wins[ipnt] = GLLPoints[igll].getSolidPointWindow(std::get<2>(*mWindows[m])(ipnt));
             }
             eleWins.push_back(std::make_unique<SolidElementWindow>(grad, prt, elastic, wins, overlap));
         }
@@ -499,7 +509,6 @@ void Quad::release(const LocalMesh &localMesh,
     domain.addElement(mElement);
     
     // free dummy memory
-    mWindows.clear();
     mMaterial.clear();
     mUndulation.clear();
     mOceanLoad.clear();
@@ -586,6 +595,7 @@ eigen::DMat2P Quad::computeNormal1D(int edge, const eigen::DMat2N &sz,
             n1D.col(ip) *= s;
         }
     }
+    return n1D;
 }
 
 // weights for CG4 attenuation
@@ -625,8 +635,8 @@ eigen::DColX Quad::computeWindowPhi(int m, int ipnt, bool keep_unwrapped) const 
         double dphi = std::get<0>(*mWindows[m])(3) - std::get<0>(*mWindows[m])(0);
         if (dphi <= 0) dphi += 2 * numerical::dPi;
         
-        phi_lims(0) = std::get<0>(*mWindows[m])(0), 
-        phi_lims(1) = std::get<0>(*mWindows[m])(0) + (1 - 1 / std::get<1>(*mWindows[m])(ipnt)) * dphi;
+        phi_lims(0) = std::get<0>(*mWindows[m])(0);
+        phi_lims(1) = std::get<0>(*mWindows[m])(0) + (1. - 1. / std::get<1>(*mWindows[m])(ipnt)) * dphi;
     }
     
     eigen::DColX phi = eigen::DColX::LinSpaced(std::get<1>(*mWindows[m])(ipnt), phi_lims(0), phi_lims(1));
@@ -634,23 +644,23 @@ eigen::DColX Quad::computeWindowPhi(int m, int ipnt, bool keep_unwrapped) const 
     if (!keep_unwrapped) window_tools::wrapPhi(phi);
     return phi;
 }    
-    
+
 eigen::DColX Quad::computeWindowFraction(eigen::DColX phi, int m, bool relative_phi) const { // called with relative phi
     eigen::DColX frac = eigen::DColX::Constant(phi.rows(), 1);
     eigen::DRow4 winShape = std::get<0>(*mWindows[m]);
     
     double tol = 2 * numerical::dPi * numerical::dEpsilon;
+    window_tools::unwrapPhi(winShape, tol);
     if (!relative_phi) { // might need unwrapping + check bounds
+        window_tools::unwrapPhi(phi);
         if (phi(0) < winShape(0) - tol || winShape(3) < phi(phi.rows() - 1) - tol) {
             throw std::runtime_error("Quad::computeWindowFraction || Angle outside window bounds.");
         }
-        window_tools::unwrapPhi(phi);
     }
     if (winShape(0) == winShape(1) && winShape(2) == winShape(3)) { // no overlap
         return frac;
     }
-    
-    window_tools::unwrapPhi(winShape, tol);
+
     if (relative_phi) {
         winShape.array() -= winShape(0);
         winShape.array() *= 2 * numerical::dPi / winShape(4);
@@ -673,14 +683,16 @@ eigen::DColX Quad::computeWindowFraction(eigen::DColX phi, int m, bool relative_
     }
 
     if (i1 >= 0 && winShape(0) != winShape(1)) {
-        phi.topRows(i1) = window_tools::getWindowSlope((phi.topRows(i1).array() - winShape(0)) / (winShape(1) - winShape(0)));
+        frac.topRows(i1) = window_tools::getWindowSlope((phi.topRows(i1).array() - winShape(0)) / (winShape(1) - winShape(0)));
     }
     
-    if (i1 >= 0 && i2 >= 0) phi.segment(i1, i2 - i1).array() = 1.;
+    if (i1 >= 0 && i2 >= 0) frac.segment(i1, i2 - i1).array() = 1.;
     
     if (i2 >= 0 && winShape(2) != winShape(3)) {
-        phi.bottomRows(phi.size() - i2) = window_tools::getWindowSlope((winShape(2) - phi.bottomRows(phi.size() - i2).array()) / (winShape(2) - winShape(3)));
+        frac.bottomRows(phi.size() - i2) = window_tools::getWindowSlope((winShape(2) - phi.bottomRows(phi.size() - i2).array()) / (winShape(2) - winShape(3)));
     }
+
+    return frac;
 }
 
 eigen::DMatXX Quad::computeRelativeWindowPhis(const std::vector<double> &phis) const {

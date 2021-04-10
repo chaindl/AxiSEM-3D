@@ -21,7 +21,7 @@ public:
             const std::vector<std::vector<std::pair<double, double>>> NodalNr, const double s) const;
             
     void finalizeNrWindows(std::vector<std::unique_ptr<std::tuple<eigen::DRow4, 
-            eigen::IRowN, int, bool>>> &quadWins, eigen::DRow2 phi_undivided, 
+            eigen::IRowN, eigen::IRowN, bool>>> &quadWins, eigen::DRow2 phi_undivided, 
             eigen::IRowN nr_undivided, double phi2_prev, double phi1_next, double s) const;
             
     int getOverlapMinNr() const {return mOverlapMinNr;};

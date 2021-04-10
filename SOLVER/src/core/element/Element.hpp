@@ -43,9 +43,9 @@ private:
         std::vector<std::unique_ptr<ElementWindow>> newWins;
         for (int m = 0; m < mWindows.size(); m++) {
             if (mWindows[m]->isFluid()) {
-                newWins.push_back(std::make_unique<FluidElementWindow>(mWindows[m]->getFluidElementWindow()));
+                newWins.push_back(std::make_unique<FluidElementWindow>(*dynamic_cast<FluidElementWindow*>(mWindows[m].get())));
             } else {
-                newWins.push_back(std::make_unique<SolidElementWindow>(mWindows[m]->getSolidElementWindow()));
+                newWins.push_back(std::make_unique<SolidElementWindow>(*dynamic_cast<SolidElementWindow*>(mWindows[m].get())));
             }
         }
         return newWins;
@@ -86,13 +86,6 @@ public:
     // get point
     Point &getPoint(int ipnt) const;
     const eigen::DRow2 &getPointCoords(int ipnt) const;
-    
-    FluidElementWindow &getFluidElementWindow(int m) const {
-        mWindows[m]->getFluidElementWindow();
-    };
-    SolidElementWindow &getSolidElementWindow(int m) const {
-        mWindows[m]->getSolidElementWindow();
-    };
     
     int getWindowNr(int m) const {return mWindows[m]->getNr();};
     int getWindowNu_1(int m) const {return mWindows[m]->getNu_1();};
@@ -152,24 +145,24 @@ public:
     
     /////////////////////////// source ///////////////////////////
     void preparePressureSource(int m) const {
-        getFluidElementWindow(m).preparePressureSource();
+        mWindows[m]->preparePressureSource();
     }
     void addPressureSource(int m, const eigen::CMatXN &pressure, int nu_1_pressure) const {
-        getFluidElementWindow(m).addPressureSource(pressure, nu_1_pressure);
+        mWindows[m]->addPressureSource(pressure, nu_1_pressure);
     }
     
     void prepareForceSource(int m) const {
-        getSolidElementWindow(m).prepareForceSource();
+        mWindows[m]->prepareForceSource();
     }
     void addForceSource(int m, const eigen::CMatXN3 &force, int nu_1_force) const {
-        getSolidElementWindow(m).addForceSource(force, nu_1_force);
+        mWindows[m]->addForceSource(force, nu_1_force);
     }
                         
     void prepareMomentSource(int m) const {
-        getSolidElementWindow(m).prepareMomentSource();
+        mWindows[m]->prepareMomentSource();
     }
     void addMomentSource(int m, const eigen::CMatXN6 &moment, int nu_1_moment) const {
-        getSolidElementWindow(m).addMomentSource(moment, nu_1_moment, mTransform);
+        mWindows[m]->addMomentSource(moment, nu_1_moment, mTransform);
     }
     
     
@@ -184,7 +177,10 @@ public:
     }
     void prepareWavefieldOutput(const channel::solid::ChannelOptions &chops, int winTag,
                                 bool enforceCoordTransform) {
-                                  
+        bool needTransform = mWindows[winTag]->prepareWavefieldOutput(chops);
+        if (enforceCoordTransform && needTransform) {
+            createCoordTransform();
+        }                           
     }
     
     bool getMajorityDisplInRTZ(const std::vector<std::pair<int,double>> &windowPhis) const {

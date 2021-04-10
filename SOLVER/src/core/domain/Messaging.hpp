@@ -23,6 +23,12 @@ public:
         mRequestsRecv.push_back(MPI_REQUEST_NULL);
     }
     
+    void finalizeComms() {
+        for (int icomm = 0; icomm < mMessageRanks.size(); icomm++) {
+            mMessageRanks[icomm]->finalizeComms();
+        }
+    }
+    
     // phase 1: gather, send, recv
     void commGatherSendRecv() {
         for (int icomm = 0; icomm < mMessageRanks.size(); icomm++) {

@@ -24,7 +24,7 @@
 class ClaytonSolid3D: public ClaytonSolid {
 public:
     // constructor
-    ClaytonSolid3D(const std::shared_ptr<SolidPointWindow> &spw,
+    ClaytonSolid3D(const std::shared_ptr<PointWindow> &spw,
                    const eigen::DColX &rhoVp, const eigen::DColX &rhoVs,
                    const eigen::DColX &area,
                    const eigen::DMatX3 &unitNormal):

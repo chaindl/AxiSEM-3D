@@ -291,7 +291,7 @@ void ExodusMesh::readBcastCoordinates(const NetCDF_Reader &reader,
     }
     mpi::enterWorld();
 }
-
+#include <iostream>
 double ExodusMesh::computeAveGLLSpacing() const {
     int nNodePP = getNumNodes() / mpi::nproc();
     int nNodeOnMe = nNodePP;

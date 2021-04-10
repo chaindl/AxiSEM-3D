@@ -10,7 +10,7 @@
 
 #include "SolidMoment.hpp"
 #include "Element.hpp"
-
+#include <iostream>
 // constructor
 SolidMoment::SolidMoment(std::unique_ptr<STF> &stf,
                          const std::shared_ptr<const Element> &element,

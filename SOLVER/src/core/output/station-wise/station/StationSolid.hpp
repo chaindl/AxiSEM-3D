@@ -27,6 +27,13 @@ public:
     // set in group
     void setInGroup(int dumpIntv, const channel::solid::ChannelOptions &chops);
     
+    void resetBuffer() {
+        mBufferU.setZero();
+        mBufferG.setZero();
+        mBufferE.setZero();
+        mBufferR.setZero();
+        mBufferS.setZero();
+    }
     
     /////////////////////////// record ///////////////////////////
 public:

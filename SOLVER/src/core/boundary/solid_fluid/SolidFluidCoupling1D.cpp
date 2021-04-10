@@ -10,7 +10,7 @@
 
 #include "SolidFluidCoupling1D.hpp"
 #include "SolidPointWindow.hpp"
-
+#include <iostream>
 // constructor
 SolidFluidCoupling1D::
 SolidFluidCoupling1D(const std::shared_ptr<SolidPointWindow> &spw,

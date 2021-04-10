@@ -24,12 +24,12 @@ public:
     }
     
     // compute accel in-place for fluid
-    virtual void computeAccel(eigen::CColX &stiff1) {
+    virtual void computeAccel(eigen::CColX &stiff1) const {
         throw std::runtime_error("Mass::computeAccel || Attempting to multiply 3D mass with stiffness in Fourier domain.");
     };
     
     // compute accel in-place for solid
-    virtual void computeAccel(eigen::CMatX3 &stiff3) {
+    virtual void computeAccel(eigen::CMatX3 &stiff3) const {
         throw std::runtime_error("Mass::computeAccel || Attempting to multiply 3D mass with stiffness in Fourier domain.");
     };
     

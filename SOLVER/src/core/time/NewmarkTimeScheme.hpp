@@ -14,7 +14,7 @@
 #include "TimeScheme.hpp"
 #include "numerical.hpp"
 #include "PointWindow.hpp"
-
+#include <iostream>
 class point;
 
 class NewmarkTimeScheme: public TimeScheme {
@@ -28,15 +28,11 @@ public:
     // solve
     void solve() const;
     
-    
     //////////////////// point ////////////////////
     // create fields on a point
-    template <class SFPointWindow>
-    static void createFields(SFPointWindow &pw) {
-        auto &f = pw.getFields();
+    template <typename Fields>
+    static void createFields(Fields &f, int nu_1, int nr) {
         int ndim = (int)f.mStiff.cols();
-        int nu_1 = pw.getNu_1();
-        int nr = pw.getNr();
         f.mStiff.resize(nu_1, ndim);
         f.mStiffR.resize(nr, ndim);
         f.mDispl.resize(nu_1, ndim);
@@ -49,11 +45,10 @@ public:
     }
     
     // update fields on a point
-    template <class SFPointWindow>
-    static void update(SFPointWindow &pw,
+    template <typename Fields>
+    static void update(Fields &f,
                        numerical::Real dt, numerical::Real half_dt,
                        numerical::Real half_dt_dt) {
-        auto &f = pw.getFields();
         // update dt
         f.mVeloc += half_dt * (f.mAccel + f.mStiff);
         f.mAccel = f.mStiff;

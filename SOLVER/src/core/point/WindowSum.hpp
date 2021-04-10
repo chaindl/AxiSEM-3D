@@ -6,12 +6,12 @@
 #include "eigen_point.hpp"
 #include "SolidPointWindow.hpp"
 #include "FluidPointWindow.hpp"
-
+#include <iostream>
 class WindowSum {
 public:
     // constructor
-    WindowSum(const eigen::RColX phi, bool onlyOneWindow):
-    mPhi(phi), mOnlyOneWindow(onlyOneWindow) {
+    WindowSum(const eigen::RColX phi):
+    mPhi(phi) {
         // nothing
     }
     
@@ -20,15 +20,18 @@ public:
     
     const eigen::RColX getPhi() const {return mPhi;};
     
+    virtual bool onlyOneWindow() const = 0;
+    virtual bool needsFT() const = 0;
+    virtual void allocateComm() = 0;
     virtual int sizeComm() const = 0;
     
     virtual void setInFourier() = 0;
     
     // feed to mpi buffer
     virtual void feedComm(eigen::RColX &buffer, int &row) const = 0;
-    
+
     // extract from mpi buffer
-    virtual void extractComm(const eigen::RColX &buffer, int &row) const = 0;
+    virtual void extractComm(const eigen::RColX &buffer, int &row) = 0;
     
     virtual void overlapAndAddStiff() = 0;
         
@@ -77,80 +80,126 @@ public:
         throw std::runtime_error("WindowSum::addFluidWindow || attempting to add fluid point window to solid window sum.");
     };
     
-    bool onlyOneWindow() {return mOnlyOneWindow;};
-    
 protected:
     const eigen::RColX mPhi;
-    const bool mOnlyOneWindow; // this is redundant for now but will be needed for discontinuous fluids etc
 };
 
 class SolidWindowSum: public WindowSum {
 public:
     SolidWindowSum(const eigen::RColX phi, bool onlyOneWindow):
-    WindowSum(phi, onlyOneWindow) {
-                
-    }
-    
-    void setInFourier() {
-        bool needFourier = (mWindows.size() > 1);
-        for (auto &win: mWindows) {
-            win->setInFourier(needFourier);
+    WindowSum(phi) {
+        if (!onlyOneWindow) {
+            mStiffR3 = eigen::RMatX3::Zero(phi.rows(), 3);
         }
     }
     
+    void setInFourier() {
+        for (auto &win: mWindows) {
+            win->setInFourier(!needsFT());
+        }
+    }
+    
+    bool onlyOneWindow() const {return (mWindows.size() == 1);};
+    
     /////////////////////////// mpi ///////////////////////////
     // size for mpi communication
+    bool needsFT() const {
+        return (mWindows.size() > 1 || mWindows[0]->is3D());
+    }
+    
+    void allocateComm() {
+        //if (needsFT()) {
+            mStiffR3 = eigen::RMatX3::Zero(mPhi.rows(), 3);
+            for (auto &win: mWindows) {
+                win->setInFourier(false);
+            }
+        //} else {
+        //    mStiff3 = eigen::CMatX3::Zero(mWindows[0]->getNu_1(), 3);
+        //}
+    }
+    
     int sizeComm() const {
-        return (int)sStiffR3.size();
+        if (mStiffR3.size() > 0) {
+            return (int)mStiffR3.size();
+        } else {
+            return (int)mStiff3.size();
+        }
     }
     
     // feed to mpi buffer
     void feedComm(eigen::RColX &buffer, int &row) const {
-        buffer.block(row, 0, sStiffR3.size(), 1) =
-        Eigen::Map<const eigen::RColX>(sStiffR3.data(),
-                                       sStiffR3.size());
-        row += sStiffR3.size();
+        if (mStiffR3.rows() > 0) {
+            buffer.block(row, 0, mStiffR3.size(), 1) =
+            Eigen::Map<const eigen::RColX>(mStiffR3.data(),
+                                           mStiffR3.size());
+            row += mStiffR3.size();
+        //} else if (mStiff3.rows() > 0) {
+            // buffer.block(row, 0, mStiff3.size(), 1) =
+            // Eigen::Map<const eigen::CColX>(mStiff3.data(),
+            //                                mStiff3.size());
+            // row += mStiff3.size();
+        } else {
+            throw std::runtime_error("SolidWindowSum::feedComm || Buffer allocation failed.");
+        }
     }
     
     // extract from mpi buffer
-    void extractComm(const eigen::RColX &buffer, int &row) const {
-        sStiffR3 +=
-        Eigen::Map<const eigen::RMatX3>(&buffer(row), sStiffR3.rows(), 3);
-        row += sStiffR3.size();
+    void extractComm(const eigen::RColX &buffer, int &row) {
+        if (mStiffR3.rows() > 0) {
+            mStiffR3 +=
+            Eigen::Map<const eigen::RMatX3>(&buffer(row), mStiffR3.rows(), 3);
+            row += mStiffR3.size();
+        //} else if (mStiff3.rows() > 0) {
+            // mStiff3 +=
+            // Eigen::Map<const eigen::CMatX3>(&buffer(row), mStiff3.rows(), 3);
+            // row += mStiff3.size();
+        } else {
+            throw std::runtime_error("SolidWindowSum::extractComm || Buffer allocation failed.");
+        }
     }
     
     void overlapAndAddStiff() {
-        if (mWindows.size() == 1) return;
-        for (int m = 0; m < mWindows.size(); m++) {
-            if (mAlignment[m] < 0) {
-                for (int idim = 0; idim < 3; idim++) {
-                    sStiffR3.col(idim) += interpolateWinToWhole(mPhi, 
-                                          mWindows[m]->getStiffForWindowSum(idim), 
-                                          mWindows[m]->getPhiForWindowSum());
-                }
-            } else {
-                for (int idim = 0; idim < 3; idim++) {
-                    sStiffR3.block(mAlignment[m], idim, mWindows[m]->getNr(), 1) += mWindows[m]->getStiffForWindowSum(idim);
+        if (mWindows.size() > 1) {
+            mStiffR3.setZero();
+            for (int m = 0; m < mWindows.size(); m++) {
+                if (mAlignment[m] < 0) {
+                    for (int idim = 0; idim < 3; idim++) {
+                        mStiffR3.col(idim) += interpolateWinToWhole(mPhi, 
+                                              mWindows[m]->getStiffForWindowSum(idim), 
+                                              mWindows[m]->getPhiForWindowSum());
+                    }
+                } else {
+                    for (int idim = 0; idim < 3; idim++) {
+                        mStiffR3.block(mAlignment[m], idim, mWindows[m]->getNr(), 1) += mWindows[m]->getStiffForWindowSum(idim);
+                    }
                 }
             }
+        } else if (mStiffR3.rows() > 0) {
+            mStiffR3 = mWindows[0]->getStiffForCommR();
+        } else if (mStiff3.rows() > 0) {
+            mStiff3 = mWindows[0]->getStiffForCommC();
         }
     }
     
     void scatterStiffToWindows() {
-        if (mWindows.size() == 1) return;
-        for (int m = 0; m < mWindows.size(); m++) {
-            if (mAlignment[m] < 0) {
-                for (int idim = 0; idim < 3; idim++) {
-                    mWindows[m]->collectStiffFromWindowSum(interpolateWholeToWin(mWindows[m]->getPhiForWindowSum(), 
-                                          sStiffR3.col(idim), mPhi), idim);
-                }
-            } else {
-                for (int idim = 0; idim < 3; idim++) {
-                    mWindows[m]->collectStiffFromWindowSum(sStiffR3.block(mAlignment[m], idim, mWindows[m]->getNr(), 1), idim);
+        if (mWindows.size() > 1) {
+            for (int m = 0; m < mWindows.size(); m++) {
+                if (mAlignment[m] < 0) {
+                    for (int idim = 0; idim < 3; idim++) {
+                        mWindows[m]->collectStiffFromWindowSum(interpolateWholeToWin(mWindows[m]->getPhiForWindowSum(), 
+                                              mStiffR3.col(idim), mPhi), idim);
+                    }
+                } else {
+                    for (int idim = 0; idim < 3; idim++) {
+                        mWindows[m]->collectStiffFromWindowSum(mStiffR3.block(mAlignment[m], idim, mWindows[m]->getNr(), 1), idim);
+                    }
                 }
             }
+        } else if (mStiffR3.rows() > 0) {
+            mWindows[0]->collectStiffFromMessaging(mStiffR3);
+        } else if (mStiff3.size() > 0) {
+            mWindows[0]->collectStiffFromMessaging(mStiff3);
         }
-        sStiffR3.setZero();
     }
     
     void addSolidWindow(const std::shared_ptr<SolidPointWindow> &win, const int aligned) {
@@ -159,66 +208,115 @@ public:
     }
     
 private:
-    inline static eigen::RMatX3 sStiffR3;
+    eigen::RMatX3 mStiffR3 = eigen::RMatX3::Zero(0, 3);
+    eigen::CMatX3 mStiff3 = eigen::CMatX3::Zero(0, 3);
     std::vector<std::shared_ptr<SolidPointWindow>> mWindows;
     std::vector<int> mAlignment;
+    mutable int mSetCount = 0;
 };
 
 class FluidWindowSum: public WindowSum {
 public:
     FluidWindowSum(const eigen::RColX phi, bool onlyOneWindow):
-    WindowSum(phi, onlyOneWindow) {
-                
-    }
-    
-    void setInFourier() {
-        bool needFourier = (mWindows.size() > 1);
-        for (auto &win: mWindows) {
-            win->setInFourier(needFourier);
+    WindowSum(phi) {
+        if (!onlyOneWindow) {
+            mStiffR1 = eigen::RColX::Zero(phi.rows(), 1);
         }
     }
     
+    void setInFourier() {
+        for (auto &win: mWindows) {
+            win->setInFourier(!needsFT());
+        }
+    }
+    
+    bool onlyOneWindow() const {return (mWindows.size() == 1);};
+    
     /////////////////////////// mpi ///////////////////////////
+    bool needsFT() const {
+        return (mWindows.size() > 1 || mWindows[0]->is3D());
+    }
+    
+    void allocateComm() {
+        //if (needsFT()) {
+            mStiffR1 = eigen::RColX::Zero(mPhi.rows(), 1);
+            for (auto &win: mWindows) {
+                win->setInFourier(false);
+            }
+        //} else {
+        //    mStiff1 = eigen::CColX::Zero(mWindows[0]->getNu_1(), 1);
+        //}
+    }
+    
     // size for mpi communication
     int sizeComm() const {
-        return (int)sStiffR1.size();
+        if (mStiffR1.rows() > 0) {
+            return (int)mStiffR1.size();
+        } else {
+            return (int)mStiff1.size();
+        }
     }
     
     // feed to mpi buffer
     void feedComm(eigen::RColX &buffer, int &row) const {
-        buffer.block(row, 0, sStiffR1.rows(), 1) = sStiffR1;
-        row += sStiffR1.rows();
+        if (mStiffR1.rows() > 0) {
+            buffer.block(row, 0, mStiffR1.rows(), 1) = mStiffR1;
+            row += mStiffR1.rows();
+        //} else if (mStiff1.rows() > 0) {
+            //buffer.block(row, 0, mStiff1.rows(), 1) = mStiff1;
+            //row += mStiff1.rows();
+        } else {
+            throw std::runtime_error("FluidWindowSum::feedComm || Buffer allocation failed.");
+        }
     }
     
     // extract from mpi buffer
-    void extractComm(const eigen::RColX &buffer, int &row) const {
-        sStiffR1 += buffer.block(row, 0, sStiffR1.rows(), 1);
-        row += sStiffR1.rows();
+    void extractComm(const eigen::RColX &buffer, int &row) {
+        if (mStiffR1.rows() > 0) {
+            mStiffR1 += buffer.block(row, 0, mStiffR1.rows(), 1);
+            row += mStiffR1.rows();
+        //} else if (mStiff1.rows() > 0) {
+            //mStiff1 += buffer.block(row, 0, mStiff1.rows(), 1);
+            //row += mStiff1.rows();
+        } else {
+            throw std::runtime_error("FluidWindowSum::extractComm || Buffer allocation failed.");
+        }
     }
     
     void overlapAndAddStiff() {
-        if (mWindows.size() == 1) return;
-        for (int m = 0; m < mWindows.size(); m++) {
-            if (mAlignment[m] < 0) {
-                sStiffR1 += interpolateWinToWhole(mPhi, 
-                                          mWindows[m]->getStiffForWindowSum(), 
-                                          mWindows[m]->getPhiForWindowSum());
-            } else {
-                sStiffR1.block(mAlignment[m], 0, mWindows[m]->getNr(), 1) += mWindows[m]->getStiffForWindowSum();
+        if (mWindows.size() > 1) {
+            mStiffR1.setZero();
+            for (int m = 0; m < mWindows.size(); m++) {
+                if (mAlignment[m] < 0) {
+                    mStiffR1 += interpolateWinToWhole(mPhi, 
+                                              mWindows[m]->getStiffForWindowSum(), 
+                                              mWindows[m]->getPhiForWindowSum());
+                } else {
+                    mStiffR1.block(mAlignment[m], 0, mWindows[m]->getNr(), 1) += mWindows[m]->getStiffForWindowSum();
+                }
             }
+        } else if (mStiffR1.size() > 0) {
+            mStiffR1 = mWindows[0]->getStiffForCommR();
+        } else if (mStiff1.size() > 0) {
+            mStiff1 = mWindows[0]->getStiffForCommC();
         }
     }
         
     void scatterStiffToWindows() {
-        for (int m = 0; m < mWindows.size(); m++) {
-            if (mAlignment[m] < 0) {
-                mWindows[m]->collectStiffFromWindowSum(interpolateWholeToWin(mWindows[m]->getPhiForWindowSum(), 
-                                          sStiffR1, mPhi));
-            } else {
-                mWindows[m]->collectStiffFromWindowSum(sStiffR1.block(mAlignment[m], 0, mWindows[m]->getNr(), 1));
+        if (mWindows.size() > 1) {
+            for (int m = 0; m < mWindows.size(); m++) {
+                if (mAlignment[m] < 0) {
+                    mWindows[m]->collectStiffFromWindowSum(interpolateWholeToWin(mWindows[m]->getPhiForWindowSum(), 
+                                              mStiffR1, mPhi));
+                } else {
+                    mWindows[m]->collectStiffFromWindowSum(mStiffR1.block(mAlignment[m], 0, mWindows[m]->getNr(), 1));
+                }
             }
+        } else if (mStiffR1.rows() > 0) {
+            mWindows[0]->collectStiffFromMessaging(mStiffR1);
+        } else if (mStiff1.size() > 0) {
+            mWindows[0]->collectStiffFromMessaging(mStiff1);
         }
-        sStiffR1.setZero();
     }
     
     void addFluidWindow(const std::shared_ptr<FluidPointWindow> &win, const int aligned) {
@@ -227,7 +325,8 @@ public:
     }
     
 private:
-    inline static eigen::RColX sStiffR1;
+    eigen::RColX mStiffR1 = eigen::RColX::Zero(0, 1);
+    eigen::CColX mStiff1= eigen::CColX::Zero(0, 1);
     std::vector<std::shared_ptr<FluidPointWindow>> mWindows;
     std::vector<int> mAlignment;
 };

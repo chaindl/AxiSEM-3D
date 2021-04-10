@@ -17,7 +17,7 @@
 class ClaytonFluid3D: public ClaytonFluid {
 public:
     // constructor
-    ClaytonFluid3D(const std::shared_ptr<FluidPointWindow> &fpw,
+    ClaytonFluid3D(const std::shared_ptr<PointWindow> &fpw,
                    const eigen::DColX &rhoVp, const eigen::DColX &area):
     ClaytonFluid(fpw),
     mAreaOverRhoVp(area.cwiseQuotient(rhoVp).cast<numerical::Real>()) {

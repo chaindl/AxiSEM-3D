@@ -15,7 +15,7 @@
 #include "FluidPointWindow.hpp"
 
 class Point;
-
+#include <iostream>
 // constructor
 SolidFluidCoupling::
 SolidFluidCoupling(const std::shared_ptr<SolidPointWindow> &spw,
@@ -31,10 +31,10 @@ mSolidPointWindow(spw), mFluidPointWindow(fpw) {
 // compute coupling
 void SolidFluidCoupling::apply() const {
     // this order matters!
-    coupleSolidToFluid(mSolidPointWindow->getFields().mDispl,
-                       mFluidPointWindow->getFields().mStiff);
-    coupleFluidToSolid(mFluidPointWindow->getFields().mStiff,
-                       mSolidPointWindow->getFields().mStiff);
+    coupleSolidToFluid(mSolidPointWindow->getSolidFields().mDispl,
+                       mFluidPointWindow->getFluidFields().mStiff);
+    coupleFluidToSolid(mFluidPointWindow->getFluidFields().mStiff,
+                       mSolidPointWindow->getSolidFields().mStiff);
 }
 
 

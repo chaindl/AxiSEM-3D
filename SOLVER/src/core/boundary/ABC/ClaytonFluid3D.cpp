@@ -15,7 +15,7 @@
 // check compatibility
 void ClaytonFluid3D::checkCompatibility() {
     // check size
-    int nr = mFluidPointWindow->getNr();
+    int nr = mPointWindow->getNr();
     if (nr != mAreaOverRhoVp.rows()) {
         throw std::runtime_error("ClaytonFluid3D::checkCompatibility ||"
                                  "Incompatible sizes.");
@@ -34,11 +34,11 @@ void ClaytonFluid3D::checkCompatibility() {
 // apply ABC
 void ClaytonFluid3D::apply() const {
     // get fields
-    const eigen::CColX &veloc = mFluidPointWindow->getFields().mVeloc;
-    eigen::CColX &stiff = mFluidPointWindow->getFields().mStiff;
+    const eigen::CColX &veloc = mPointWindow->getFluidFields().mVeloc;
+    eigen::CColX &stiff = mPointWindow->getFluidFields().mStiff;
     
     // constants
-    int nr = mFluidPointWindow->getNr();
+    int nr = mPointWindow->getNr();
     int nu_1 = nr / 2 + 1;
     
     // FFT: Fourier => cardinal

@@ -16,13 +16,13 @@
 //  rpa -> rho * vp * area
 
 #include "ClaytonSolid3D.hpp"
-#include "SolidPointWindow.hpp"
+#include "PointWindow.hpp"
 #include "fft.hpp"
 
 // check compatibility
 void ClaytonSolid3D::checkCompatibility() {
     // check size
-    int nr = mSolidPointWindow->getNr();
+    int nr = mPointWindow->getNr();
     if (nr != mRSA.rows()) {
         throw std::runtime_error("ClaytonSolid3D::checkCompatibility ||"
                                  "Incompatible sizes.");
@@ -42,8 +42,8 @@ void ClaytonSolid3D::checkCompatibility() {
 // apply ABC
 void ClaytonSolid3D::apply() const {
     // get fields
-    const eigen::CMatX3 &veloc = mSolidPointWindow->getFields().mVeloc;
-    eigen::CMatX3 &stiff = mSolidPointWindow->getFields().mStiff;
+    const eigen::CMatX3 &veloc = mPointWindow->getSolidFields().mVeloc;
+    eigen::CMatX3 &stiff = mPointWindow->getSolidFields().mStiff;
     
     // constants
     int nr = (int)mRSA.rows();
@@ -55,8 +55,8 @@ void ClaytonSolid3D::apply() const {
     // a = rsa V
     sAR.topRows(nr) = mRSA.asDiagonal() * sVR.topRows(nr);
     
-    // a -= V.k k
-    sAR.topRows(nr) -= (sVR.topRows(nr).cwiseProduct(mK)
+    // a += V.k k
+    sAR.topRows(nr) += (sVR.topRows(nr).cwiseProduct(mK)
                         .rowwise().sum().asDiagonal() * mK);
     
     // FFT: cardinal => Fourier

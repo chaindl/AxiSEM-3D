@@ -178,8 +178,6 @@ protected:
         eigen::IArray3 len = {1, 1, bufferLine};
         bufferFields.slice(loc, len).reshape(eigen::IArray1{bufferLine}) =
         Eigen::TensorMap<eigen::RTensor1>(sColBuffer.data(), bufferLine);
-        
-        field.setZero();
     }
     
     

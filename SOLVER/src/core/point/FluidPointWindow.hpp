@@ -14,8 +14,18 @@
 #include "PointWindow.hpp"
 #include "eigen_element.hpp"
 #include "Scanning1D.hpp"
-
+#include <iostream>
 class TimeScheme;
+
+struct FluidStore {
+    // pressure source (to be added to accel)
+    eigen::CColX mPressureSource = eigen::CColX(0, 1);
+    // acceleration storage for pressure output
+    // NOTE: duplicated in Newmark
+    eigen::CColX mPressureStore = eigen::CColX(0, 1);
+    // stiffness storage for delta output
+    eigen::CColX mDeltaStore = eigen::CColX(0, 1);
+};
 
 class FluidPointWindow: public PointWindow {
 public:
@@ -26,6 +36,8 @@ public:
                const std::shared_ptr<Point> point);
     
 public:
+    bool isFluid() const {return true;};
+  
     /////////////////////////// measure ///////////////////////////
     // random displ
     void randomDispl() {
@@ -46,9 +58,9 @@ public:
         mFields.mDispl.setZero();
         mFields.mVeloc.setZero();
         mFields.mAccel.setZero();
-        mFields.mPressureSource.setZero();
-        mFields.mPressureStore.setZero();
-        mFields.mDeltaStore.setZero();
+        mFluidStore.mPressureSource.setZero();
+        mFluidStore.mPressureStore.setZero();
+        mFluidStore.mDeltaStore.setZero();
     }
     
     /////////////////////////// time loop ///////////////////////////
@@ -62,6 +74,8 @@ public:
     void computeStiffToAccel();
     void transformToFourier();
     void applyPressureSource();
+    void maskNyquist();
+    void applyAxialBC();
     
     /////////////////////////// window sum  ///////////////////////////
 
@@ -70,6 +84,11 @@ public:
     void collectStiffFromWindowSum(const eigen::RColX &stiff) {
         mFields.mStiffR = stiff.cwiseProduct(mWindowSumFrac);
     }
+    
+    eigen::RColX getStiffForCommR() {return mFields.mStiffR;};
+    eigen::CColX getStiffForCommC() {return mFields.mStiff;};
+    void collectStiffFromMessaging(const eigen::RColX &stiff) {mFields.mStiffR = stiff;};
+    void collectStiffFromMessaging(const eigen::CColX &stiff) {mFields.mStiff = stiff;};
     
     /////////////////////////// element ///////////////////////////
     // scatter displ to element
@@ -100,7 +119,7 @@ public:
     /////////////////////////// source ///////////////////////////
     // prepare pressure source
     void preparePressureSource() {
-        mFields.mPressureSource = eigen::CColX::Zero(mNu_1, 1);
+        mFluidStore.mPressureSource = eigen::CColX::Zero(mNu_1, 1);
     }
     
     // add pressure source
@@ -108,7 +127,7 @@ public:
                            int nu_1_pressure, int ipnt) {
         // add minimum orders only
         int nu_1_min = std::min(mNu_1, nu_1_pressure);
-        mFields.mPressureSource.topRows(nu_1_min) +=
+        mFluidStore.mPressureSource.topRows(nu_1_min) +=
         pressure.block(0, ipnt, nu_1_min, 1);
     }
     
@@ -117,8 +136,8 @@ public:
     // prepare pressure output
     void preparePressureOutput() {
         // pressure is mAccel, which may not be allocated by the time scheme
-        if (mFields.mPressureStore.rows() == 0) {
-            mFields.mPressureStore = eigen::CColX::Zero(mNu_1, 1);
+        if (mFluidStore.mPressureStore.rows() == 0) {
+            mFluidStore.mPressureStore = eigen::CColX::Zero(mNu_1, 1);
         }
     }
     
@@ -126,8 +145,8 @@ public:
     void prepareDeltaOutput() {
         // delta is mStiff, but we need to store it because mStiff is set
         // to zero after dividing by mass
-        if (mFields.mDeltaStore.rows() == 0) {
-            mFields.mDeltaStore = eigen::CColX::Zero(mNu_1, 1);
+        if (mFluidStore.mDeltaStore.rows() == 0) {
+            mFluidStore.mDeltaStore = eigen::CColX::Zero(mNu_1, 1);
         }
     }
     
@@ -135,7 +154,7 @@ public:
     void scatterPressureToElementWindow(eigen::CMatXN &pressure,
                                   int nu_1_element, int ipnt) const {
         // copy lower orders
-        pressure.block(0, ipnt, mNu_1, 1) = mFields.mPressureStore;
+        pressure.block(0, ipnt, mNu_1, 1) = mFluidStore.mPressureStore;
         
         // mask higher orders
         pressure.block(mNu_1, ipnt, nu_1_element - mNu_1, 1).setZero();
@@ -145,7 +164,7 @@ public:
     void scatterDeltaToElementWindow(eigen::CMatXN &delta,
                                int nu_1_element, int ipnt) const {
         // copy lower orders
-        delta.block(0, ipnt, mNu_1, 1) = mFields.mDeltaStore;
+        delta.block(0, ipnt, mNu_1, 1) = mFluidStore.mDeltaStore;
         
         // mask higher orders
         delta.block(mNu_1, ipnt, nu_1_element - mNu_1, 1).setZero();
@@ -153,40 +172,21 @@ public:
     
     
     /////////////////////////// fields ///////////////////////////
-    FluidPointWindow* getFluidPointWindow() {return this;};
-    
-    // fields on a fluid point
-    struct Fields {
-        eigen::CColX mStiff = eigen::CColX(0, 1);
-        eigen::RColX mStiffR = eigen::RColX(0, 1);
-        eigen::CColX mDispl = eigen::CColX(0, 1);
-        eigen::CColX mVeloc = eigen::CColX(0, 1);
-        eigen::CColX mAccel = eigen::CColX(0, 1);
-        
-        // pressure source (to be added to accel)
-        eigen::CColX mPressureSource = eigen::CColX(0, 1);
-        
-        // acceleration storage for pressure output
-        // NOTE: duplicated in Newmark
-        eigen::CColX mPressureStore = eigen::CColX(0, 1);
-        
-        // stiffness storage for delta output
-        eigen::CColX mDeltaStore = eigen::CColX(0, 1);
-    };
     
     // get
-    const Fields &getFields() const {
+    const Fields<1> &getFluidFields() const {
         return mFields;
     }
     
     // set
-    Fields &getFields() {
+    Fields<1> &getFluidFields() {
         return mFields;
     }
     
 private:
     // fields on a fluid point
-    Fields mFields;
+    Fields<1> mFields;
+    FluidStore mFluidStore;
     
     /////////////////////////// wavefield scanning ///////////////////////////
 public:

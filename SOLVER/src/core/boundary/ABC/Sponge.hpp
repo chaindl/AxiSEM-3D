@@ -14,39 +14,39 @@
 #include "numerical.hpp"
 #include "eigen_generic.hpp"
 #include "fft.hpp"
-
-class Point;
+#include "PointWindow.hpp"
 
 //////////////// solid/fluid interface for Sponge ////////////////
-template <class PointWindowSF>
+template <int dims>
 struct InterfaceSF {
 };
 
 template <>
-struct InterfaceSF<SolidPointWindow> {
+struct InterfaceSF<3> {
     typedef Eigen::Matrix<numerical::Real, Eigen::Dynamic, 3> RMatSF;
     inline static SolverFFTW<numerical::Real, 3> &fftSF = fft::gFFT_3;
+    inline static auto &getFields(const std::shared_ptr<PointWindow> pw) {return pw->getSolidFields();};
 };
 
 template <>
-struct InterfaceSF<FluidPointWindow> {
+struct InterfaceSF<1> {
     typedef Eigen::Matrix<numerical::Real, Eigen::Dynamic, 1> RMatSF;
     inline static SolverFFTW<numerical::Real, 1> &fftSF = fft::gFFT_1;
+    inline static auto &getFields(const std::shared_ptr<PointWindow> pw) {return pw->getFluidFields();};
 };
 
-
 ///////////////////// Sponge class /////////////////////
-template <class PointWindowSF>
+template <int dims>
 class Sponge {
 public:
     // 1D constructor
-    Sponge(const std::shared_ptr<PointWindowSF> &pw, double gamma):
+    Sponge(const std::shared_ptr<PointWindow> &pw, double gamma):
     mPointWindow(pw), mGamma((eigen::RColX(1) << gamma).finished()) {
         // nothing
     }
     
     // 3D constructor
-    Sponge(const std::shared_ptr<PointWindowSF> &pw, const eigen::DColX &gamma):
+    Sponge(const std::shared_ptr<PointWindow> &pw, const eigen::DColX &gamma):
     mPointWindow(pw), mGamma(gamma.cast<numerical::Real>()) {
         // check size
         int nr = (int)gamma.rows();
@@ -55,7 +55,7 @@ public:
         }
         
         // fft
-        InterfaceSF<PointWindowSF>::fftSF.addNR(nr);
+        InterfaceSF<dims>::fftSF.addNR(nr);
         
         // workspace
         if (sStiff.rows() < nr) {
@@ -77,9 +77,9 @@ public:
         static const numerical::Real two = 2.;
         
         // get fields from point
-        auto &stiff = mPointWindow->getFields().mStiff;
-        const auto &veloc = mPointWindow->getFields().mVeloc;
-        const auto &displ = mPointWindow->getFields().mDispl;
+        auto &stiff = InterfaceSF<dims>::getFields(mPointWindow).mStiff;
+        const auto &veloc = InterfaceSF<dims>::getFields(mPointWindow).mVeloc;
+        const auto &displ = InterfaceSF<dims>::getFields(mPointWindow).mDispl;
         
         // update acceleration
         if (mGamma.rows() == 1) {
@@ -89,18 +89,18 @@ public:
         } else {
             // 3D
             int nr = (int)mGamma.rows();
-            InterfaceSF<PointWindowSF>::fftSF.computeC2R(stiff, sStiff, nr);
-            InterfaceSF<PointWindowSF>::fftSF.computeC2R(displ, sDispl, nr);
-            InterfaceSF<PointWindowSF>::fftSF.computeC2R(veloc, sVeloc, nr);
+            InterfaceSF<dims>::fftSF.computeC2R(stiff, sStiff, nr);
+            InterfaceSF<dims>::fftSF.computeC2R(displ, sDispl, nr);
+            InterfaceSF<dims>::fftSF.computeC2R(veloc, sVeloc, nr);
             sStiff -= ((two * mGamma).asDiagonal() * sVeloc +
                        mGamma.array().square().matrix().asDiagonal() * sDispl);
-            InterfaceSF<PointWindowSF>::fftSF.computeR2C(sStiff, stiff, nr);
+            InterfaceSF<dims>::fftSF.computeR2C(sStiff, stiff, nr);
         }
     }
     
 private:
     // point
-    const std::shared_ptr<PointWindowSF> mPointWindow;
+    const std::shared_ptr<PointWindow> mPointWindow;
     
     // gamma
     const eigen::RColX mGamma;
@@ -108,7 +108,7 @@ private:
     //////////////////// static ////////////////////
     // 3D workspace
     inline static typename
-    InterfaceSF<PointWindowSF>::RMatSF sStiff, sVeloc, sDispl;
+    InterfaceSF<dims>::RMatSF sStiff, sVeloc, sDispl;
 };
 
 #endif /* Sponge_hpp */

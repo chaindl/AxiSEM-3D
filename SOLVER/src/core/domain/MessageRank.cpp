@@ -10,20 +10,26 @@
 
 #include "MessageRank.hpp"
 #include "WindowSum.hpp"
-
+#include <iostream>
 // constructor
 MessageRank::
-MessageRank(int rankOther, const std::vector<MeshWindowSum> &meshWindowSums):
-mRankOther(rankOther), mMeshWindowSums(meshWindowSums) {
+MessageRank(int rankOther, const std::vector<MeshPoint> &meshPoints):
+mRankOther(rankOther), mMeshPoints(meshPoints) {
     // allocate buffer
-    allocateBuffer();
+    setUpWindowSums();
 }
 
-// allocate buffer
-void MessageRank::allocateBuffer() {
+void MessageRank::setUpWindowSums() {
+    for (auto iter = mMeshPoints.begin(); iter != mMeshPoints.end(); iter++) {
+        for (const auto &ws: std::get<1>(*iter)) {
+            ws->allocateComm();
+        }
+    }
+    
     // allocate buffers
     int sizeComm = 0;
-    for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
+    //std::cout << "allocating, should have about " << mMeshPoints.size() * 30 << std::endl;
+    for (auto iter = mMeshPoints.begin(); iter != mMeshPoints.end(); iter++) {
         for (const auto &ws: std::get<1>(*iter)) {
             sizeComm += ws->sizeComm();
         }
@@ -32,14 +38,18 @@ void MessageRank::allocateBuffer() {
     mBufferRecv = eigen::RColX::Zero(sizeComm);
 }
 
+void MessageRank::finalizeComms() {
+    //nothing
+}
+
 // gather from points
 void MessageRank::gatherFromPointWindows() {
+    //std::cout << "gathering..." << std::endl;
     int row = 0;
-    for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
-        for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
-            for (const auto &ws: std::get<1>(*iter)) {
-                ws->feedComm(mBufferSend, row);
-            }
+    for (auto iter = mMeshPoints.begin(); iter != mMeshPoints.end(); iter++) {
+        for (const auto &ws: std::get<1>(*iter)) {
+            //std::cout << "feed..." << std::endl;
+            ws->feedComm(mBufferSend, row);
         }
     }
 }
@@ -47,11 +57,9 @@ void MessageRank::gatherFromPointWindows() {
 // scatter to points
 void MessageRank::scatterToPointWindows() const {
     int row = 0;
-    for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
-        for (auto iter = mMeshWindowSums.begin(); iter != mMeshWindowSums.end(); iter++) {
-            for (const auto &ws: std::get<1>(*iter)) {
-                ws->extractComm(mBufferRecv, row);
-            }
+    for (auto iter = mMeshPoints.begin(); iter != mMeshPoints.end(); iter++) {
+        for (const auto &ws: std::get<1>(*iter)) {
+            ws->extractComm(mBufferRecv, row);
         }
     }
 }
@@ -62,8 +70,8 @@ contains(const std::shared_ptr<const PointWindow> &target) const {
     // here we use a lambda expression
     // [&target] means that our lambda captures 'target' by ref
     return std::find_if
-    (mMeshWindowSums.begin(), mMeshWindowSums.end(),
-     [&target](const MeshWindowSum &mws) {
+    (mMeshPoints.begin(), mMeshPoints.end(),
+     [&target](const MeshPoint &mws) {
         return std::get<0>(mws) == target->getMeshTag();
-    }) != mMeshWindowSums.end();
+    }) != mMeshPoints.end();
 }

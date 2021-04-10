@@ -14,8 +14,7 @@
 // point
 #include <memory>
 #include <vector>
-class SolidPointWindow;
-class FluidPointWindow;
+class PointWindow;
 
 // domain
 class Messaging;
@@ -23,13 +22,8 @@ class Messaging;
 class AxialBoundary {
 public:
     // add solid point
-    void addPointWindow(const std::shared_ptr<SolidPointWindow> &spw) {
-        mSolidPointWindows.push_back(spw);
-    }
-    
-    // add fluid point
-    void addPointWindow(const std::shared_ptr<FluidPointWindow> &fpw) {
-        mFluidPointWindows.push_back(fpw);
+    void addPointWindow(const std::shared_ptr<PointWindow> &pw) {
+        mPointWindows.push_back(pw);
     }
     
     // apply axial masking
@@ -40,8 +34,7 @@ public:
     
 private:
     // points on axis
-    std::vector<std::shared_ptr<SolidPointWindow>> mSolidPointWindows;
-    std::vector<std::shared_ptr<FluidPointWindow>> mFluidPointWindows;
+    std::vector<std::shared_ptr<PointWindow>> mPointWindows;
 };
 
 #endif /* AxialBoundary_hpp */

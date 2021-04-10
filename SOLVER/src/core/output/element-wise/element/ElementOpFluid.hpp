@@ -25,6 +25,12 @@ public:
     void setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops,
                     int nphis);
     
+    void resetBuffer() {
+        mBufferU.setZero();
+        mBufferX.setZero();
+        mBufferP.setZero();
+        mBufferD.setZero();
+    }
     
     /////////////////////////// record ///////////////////////////
 public:

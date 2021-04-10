@@ -21,7 +21,8 @@ void FluidSurfaceBoundary::apply() const {
     // pressure ≡ 0 or accel ≡ 0
     // so, veloc = disp = everything ≡ 0
     for (const std::shared_ptr<FluidPointWindow> &fpw: mFluidPointWindows) {
-        fpw->getFields().mStiff.setZero();
+        fpw->getFluidFields().mStiff.setZero();
+        fpw->getFluidFields().mStiffR.setZero();
     }
 }
 

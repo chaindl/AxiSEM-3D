@@ -86,6 +86,7 @@ void Domain::replaceElement(const std::shared_ptr<Element> &element) {
 // set mpi messaging
 void Domain::setMessaging(std::unique_ptr<Messaging> &msg) {
     mMessaging = std::move(msg);
+    mMessaging->finalizeComms();
 }
 
 // verbose
@@ -267,13 +268,16 @@ void Domain::applyBC_BeforeAssemblingStiff() const {
     // the following order matters!
     mAbsorbingBoundary->applyClayton();
     mSolidFluidBoundary->apply();
-    mAxialBoundary->apply();
-    mFluidSurfaceBoundary->apply();
 }
 
 // boundary conditions after assembling stiffness
 // * axial
 // * fluid surface
+void Domain::applyBC_AfterAssemblingStiff() const {
+    // the following order matters!
+    mAxialBoundary->apply();
+    mFluidSurfaceBoundary->apply();
+}
 
 // boundary conditions after computing acceleration
 // * sponge ABC

@@ -26,6 +26,8 @@ public:
                const std::shared_ptr<Point> point);
     
 public:
+    bool isFluid() const {return false;};
+  
     /////////////////////////// measure ///////////////////////////
     // random displ
     void randomDispl() {
@@ -58,7 +60,8 @@ public:
     void transformToPhysical();
     void computeStiffToAccel();
     void transformToFourier();
-    void applyPressureSource();
+    void maskNyquist();
+    void applyAxialBC();
     
     /////////////////////////// window sum  ///////////////////////////
 
@@ -66,6 +69,11 @@ public:
     void collectStiffFromWindowSum(const eigen::RColX &stiff, const int i) {
         mFields.mStiffR.col(i) = stiff.cwiseProduct(mWindowSumFrac);
     }
+    
+    eigen::RMatX3 getStiffForCommR() {return mFields.mStiffR;};
+    eigen::CMatX3 getStiffForCommC() {return mFields.mStiff;};
+    void collectStiffFromMessaging(const eigen::RMatX3 &stiff) {mFields.mStiffR = stiff;};
+    void collectStiffFromMessaging(const eigen::CMatX3 &stiff) {mFields.mStiff = stiff;};
     
     /////////////////////////// element ///////////////////////////
     // scatter displ to element
@@ -96,6 +104,8 @@ public:
             mFields.mStiff(alpha, 1) -= stiff[alpha][1](ipol, jpol);
             mFields.mStiff(alpha, 2) -= stiff[alpha][2](ipol, jpol);
         }
+        if (!mD && mFields.mStiff.real().norm() > 0) mD = true;
+        //if (mD) std::cout << "stiff gathered" << std::endl << mFields.mStiff << std::endl << std::endl;
     }
     
     
@@ -115,29 +125,20 @@ public:
 
     SolidPointWindow* getSolidPointWindow() {return this;};
     
-    // fields on a solid point
-    struct Fields {
-        eigen::CMatX3 mStiff = eigen::CMatX3(0, 3);
-        eigen::RMatX3 mStiffR = eigen::RMatX3(0, 3);
-        eigen::CMatX3 mDispl = eigen::CMatX3(0, 3);
-        eigen::CMatX3 mVeloc = eigen::CMatX3(0, 3);
-        eigen::CMatX3 mAccel = eigen::CMatX3(0, 3);
-    };
-    
     // get
-    const Fields &getFields() const {
+    const Fields<3> &getSolidFields() const {
         return mFields;
     }
     
     // set
-    Fields &getFields() {
+    Fields<3> &getSolidFields() {
         return mFields;
     }
     
 private:
     // fields on a solid point
-    Fields mFields;
-    
+    Fields<3> mFields;
+    bool mD = false;
     
     /////////////////////////// wavefield scanning ///////////////////////////
 public:

@@ -154,7 +154,7 @@ std::pair<eigen::DMatX2, eigen::IMatX4> NrField::makeElementalNrWindows(
 }
     
 void NrField::finalizeNrWindows(
-    std::vector<std::unique_ptr<std::tuple<eigen::DRow4, eigen::IRowN, int, bool>>> &quadWins,
+    std::vector<std::unique_ptr<std::tuple<eigen::DRow4, eigen::IRowN, eigen::IRowN, bool>>> &quadWins,
     eigen::DRow2 phi_undivided, eigen::IRowN nr_undivided,
     double phi2_prev, double phi1_next, double s) const {
      
@@ -219,9 +219,9 @@ void NrField::finalizeNrWindows(
                        window_tools::setBounds2Pi(phi_start + m * regWinPhi + overlap),
                        window_tools::setBounds2Pi(phi_start + (m + 1) * regWinPhi),
                        window_tools::setBounds2Pi(phi_start + (m + 1) * regWinPhi + overlap);
-                std::tuple<eigen::DRow4, eigen::IRowN, int, bool> win_tuple = std::make_tuple(phi, nr_sub, -1, true);
-                quadWins[nwin_prev + m] = std::make_unique<std::tuple<eigen::DRow4, eigen::IRowN, int, bool>>();
-                *quadWins[nwin_prev + m] = std::make_tuple(phi, nr_sub, -1, true);
+                std::tuple<eigen::DRow4, eigen::IRowN, eigen::IRowN, bool> win_tuple = std::make_tuple(phi, nr_sub, eigen::IRowN::Constant(1, spectral::nPEM, -1), true);
+                quadWins[nwin_prev + m] = std::make_unique<std::tuple<eigen::DRow4, eigen::IRowN, eigen::IRowN, bool>>();
+                *quadWins[nwin_prev + m] = std::make_tuple(phi, nr_sub, eigen::IRowN::Constant(1, spectral::nPEM, -1), true);
             }
             
             // re-introduce potentially different overlaps from start and end
@@ -254,8 +254,8 @@ void NrField::finalizeNrWindows(
         phi << phi_undivided(0), phi2_prev, phi1_next, phi_undivided(1);
         bool hasOverlap = (win_size < 2 * numerical::dPi - angle_tol); // no overlap for single window 
         
-        quadWins.push_back(std::make_unique<std::tuple<eigen::DRow4, eigen::IRowN, int, bool>>());
-        *quadWins[nwin_prev] = std::make_tuple(phi, nr_undivided, -1, hasOverlap);
+        quadWins.push_back(std::make_unique<std::tuple<eigen::DRow4, eigen::IRowN, eigen::IRowN, bool>>());
+        *quadWins[nwin_prev] = std::make_tuple(phi, nr_undivided, eigen::IRowN::Constant(1, spectral::nPEM, -1), hasOverlap);
     }
 }
 
