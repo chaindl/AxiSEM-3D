@@ -33,6 +33,7 @@ class Domain;
 class AttBuilder;
 class SolidElement;
 class FluidElement;
+#include "WindowInterpolator.hpp"
 #include "GradientQuadrature.hpp"
 
 // measure
@@ -45,17 +46,23 @@ public:
          const NrField &nrField, int localTag);
     
     // finishing 3D properties
-    void finishing3D() {
+    void finishing3D(WindowInterpolator<double> &undulationBufferer) {
         for (int m = 0; m < getM(); m++) {
-            mUndulation[m]->finishing3D();
+            mUndulation[m]->finishing3D(getM() > 1, undulationBufferer);
         }
     }
     
     // finished 3D properties
-    void finished3D() {
+    void finished3D(WindowInterpolator<double> &undulationBufferer) {
+        double winFrac = 1.;
         for (int m = 0; m < getM(); m++) {
-            double winFrac = 2 * numerical::dPi / (std::get<0>(*mWindows[m])(3) - std::get<0>(*mWindows[m])(0));
-            mUndulation[m]->finished3D(*this, winFrac);
+            if (getM() > 1) {
+                double dphi = std::get<0>(*mWindows[m])(3) - std::get<0>(*mWindows[m])(0);
+                if (dphi < 0) dphi += 2 * numerical::dPi;
+                dphi /= std::get<1>(*mWindows[m]).maxCoeff();
+                winFrac = dphi * (std::get<1>(*mWindows[m]).maxCoeff() + interpolation::NrExtend);
+            }
+            mUndulation[m]->finished3D(*this, winFrac, undulationBufferer);
             mMaterial[m]->finished3D();
         }
     }
@@ -76,6 +83,7 @@ public:
     void release(const LocalMesh &localMesh,
                  const std::vector<GLLPoint> &GLLPoints,
                  const std::unique_ptr<const AttBuilder> &attBuilder,
+                 const std::shared_ptr<WindowInterpolator<numerical::Real>> &interpolator,
                  Domain &domain);
     
     // inverse mapping: (s,z) -> (ξ,η)
@@ -111,9 +119,9 @@ public:
         return std::get<1>(*mWindows[m]);
     }
     
-    eigen::DMatXX computeRelativeWindowPhis(const std::vector<double> &phis) const;
+    eigen::DMatXX computeRelativeWindowPhis(const std::vector<double> &phis, std::vector<double> &fractions) const;
     eigen::DColX computeWindowPhi(int m, int ipnt, bool keep_unwrapped) const; 
-    eigen::DColX computeWindowFraction(eigen::DColX phi, int m, bool relative_phi) const;
+    eigen::DColX computeWindowFunction(eigen::DColX phi, int m, bool relative_phi) const;
     int getM() const {return mWindows.size();};
 
     // get point sz

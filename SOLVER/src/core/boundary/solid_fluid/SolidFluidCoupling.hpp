@@ -14,20 +14,19 @@
 // point
 #include "eigen_point.hpp"
 #include <memory>
-class SolidPointWindow;
-class FluidPointWindow;
+class PointWindow;
 
 class SolidFluidCoupling {
 public:
     // constructor
-    SolidFluidCoupling(const std::shared_ptr<SolidPointWindow> &spw,
-                       const std::shared_ptr<FluidPointWindow> &fpw);
+    SolidFluidCoupling(const std::shared_ptr<PointWindow> &spw,
+                       const std::shared_ptr<PointWindow> &fpw);
     
     // destructor
     virtual ~SolidFluidCoupling() = default;
     
     // get solid point
-    const std::shared_ptr<SolidPointWindow> &getSolidPointWindow() const {
+    const std::shared_ptr<PointWindow> &getSolidPointWindow() const {
         return mSolidPointWindow;
     }
     
@@ -44,15 +43,17 @@ public:
     // solid => fluid
     virtual void coupleSolidToFluid(const eigen::CMatX3 &solidDispl,
                                     eigen::CColX &fluidStiff) const = 0;
-    
+    virtual void coupleSolidToFluid(const eigen::RMatX3 &solidDispl,
+                                    eigen::RColX &fluidStiff) const = 0;
     // fluid => solid
     virtual void coupleFluidToSolid(const eigen::CColX &fluidStiff,
                                     eigen::CMatX3 &solidStiff) const = 0;
-    
+    virtual void coupleFluidToSolid(const eigen::RColX &fluidStiff,
+                                    eigen::RMatX3 &solidStiff) const = 0;
 protected:
     // coupled solid-fluid pair
-    const std::shared_ptr<SolidPointWindow> mSolidPointWindow;
-    const std::shared_ptr<FluidPointWindow> mFluidPointWindow;
+    const std::shared_ptr<PointWindow> mSolidPointWindow;
+    const std::shared_ptr<PointWindow> mFluidPointWindow;
 };
 
 #endif /* SolidFluidCoupling_hpp */

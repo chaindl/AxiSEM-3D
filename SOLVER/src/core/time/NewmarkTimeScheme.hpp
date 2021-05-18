@@ -13,9 +13,8 @@
 
 #include "TimeScheme.hpp"
 #include "numerical.hpp"
-#include "PointWindow.hpp"
 #include <iostream>
-class point;
+class Point;
 
 class NewmarkTimeScheme: public TimeScheme {
 public:
@@ -31,14 +30,15 @@ public:
     //////////////////// point ////////////////////
     // create fields on a point
     template <typename Fields>
-    static void createFields(Fields &f, int nu_1, int nr) {
+    static void createFields(Fields &f, int nu_1, int nr, int n_displ) {
         int ndim = (int)f.mStiff.cols();
         f.mStiff.resize(nu_1, ndim);
         f.mStiffR.resize(nr, ndim);
-        f.mDispl.resize(nu_1, ndim);
-        f.mVeloc.resize(nu_1, ndim);
-        f.mAccel.resize(nu_1, ndim);
+        f.mDispl.resize(n_displ, ndim);
+        f.mVeloc.resize(n_displ, ndim);
+        f.mAccel.resize(n_displ, ndim);   
         f.mStiff.setZero();
+        f.mStiffR.setZero();
         f.mDispl.setZero();
         f.mVeloc.setZero();
         f.mAccel.setZero();
@@ -50,12 +50,12 @@ public:
                        numerical::Real dt, numerical::Real half_dt,
                        numerical::Real half_dt_dt) {
         // update dt
-        f.mVeloc += half_dt * (f.mAccel + f.mStiff);
-        f.mAccel = f.mStiff;
+        f.mVeloc += half_dt * (f.mAccel + f.mStiffUpdate);
+        f.mAccel = f.mStiffUpdate;
         f.mDispl += dt * f.mVeloc + half_dt_dt * f.mAccel;
         
         // zero stiffness for next time step
-        f.mStiff.setZero();
+        f.mStiffUpdate.setZero();
     }
     
 private:

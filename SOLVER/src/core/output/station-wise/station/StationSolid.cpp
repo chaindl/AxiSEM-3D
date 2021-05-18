@@ -39,13 +39,13 @@ setInGroup(int dumpIntv, const channel::solid::ChannelOptions &chops) {
     
     // element
     for (int m = 0; m < mWindowPhis.size(); m++) {
-        mElement->prepareWavefieldOutput(chops, mWindowPhis[m].first, false);
+        mElement->prepareWavefieldOutput(chops, std::get<0>(mWindowPhis[m]), false);
     }
     
     // workspace
     int maxNu_1 = 0;
     for (int m = 0; m < mWindowPhis.size(); m++) {
-        maxNu_1 = std::max(maxNu_1, mElement->getWindowNu_1(mWindowPhis[m].first));
+        maxNu_1 = std::max(maxNu_1, mElement->getWindowNu_1(std::get<0>(mWindowPhis[m])));
     }
     expandWorkspaceRecord(maxNu_1, chops);
     expandWorkspaceProcess(dumpIntv, chops.mNeedBufferE || chops.mNeedBufferS);
@@ -57,35 +57,35 @@ setInGroup(int dumpIntv, const channel::solid::ChannelOptions &chops) {
 void StationSolid::
 record(int bufferLine, const channel::solid::ChannelOptions &chops) {
     for (int m = 0; m < mWindowPhis.size(); m++) {
-        int nu_1 = mElement->getWindowNu_1(mWindowPhis[m].first);
+        int nu_1;
         
         // displ
         if (chops.mNeedBufferU) {
-            mElement->getDisplField(sUXN3, mMajorityDisplInRTZ, mWindowPhis[m].first);
-            interpolate<3>(sUXN3, sUX3, sU3, nu_1, m);
+            mElement->getDisplField(sUXN3, mMajorityDisplInRTZ, std::get<0>(mWindowPhis[m]));
+            interpolate<3>(sUXN3, sUX3, sU3, mElement->getWindowNu_1_noBuffer(std::get<0>(mWindowPhis[m])), m);
             mBufferU.row(bufferLine) += sU3;
         }
         // nabla
         if (chops.mNeedBufferG) {
-            mElement->getNablaField(sGXN9, mMajorityNablaInRTZ, mWindowPhis[m].first);
+            mElement->getNablaField(sGXN9, mMajorityNablaInRTZ, std::get<0>(mWindowPhis[m]), nu_1);
             interpolate<9>(sGXN9, sGX9, sG9, nu_1, m);
             mBufferG.row(bufferLine) += sG9;
         }
         // strain
         if (chops.mNeedBufferE) {
-            mElement->getStrainField(sEXN6, mMajorityStrainInRTZ, mWindowPhis[m].first);
+            mElement->getStrainField(sEXN6, mMajorityStrainInRTZ, std::get<0>(mWindowPhis[m]), nu_1);
             interpolate<6>(sEXN6, sEX6, sE6, nu_1, m);
             mBufferE.row(bufferLine) += sE6;
         }
         // curl
         if (chops.mNeedBufferR) {
-            mElement->getCurlField(sRXN3, mMajorityCurlInRTZ, mWindowPhis[m].first);
+            mElement->getCurlField(sRXN3, mMajorityCurlInRTZ, std::get<0>(mWindowPhis[m]), nu_1);
             interpolate<3>(sRXN3, sRX3, sR3, nu_1, m);
             mBufferR.row(bufferLine) += sR3;
         }
         // stress
         if (chops.mNeedBufferS) {
-            mElement->getStressField(sSXN6, mMajorityStressInRTZ, mWindowPhis[m].first);
+            mElement->getStressField(sSXN6, mMajorityStressInRTZ, std::get<0>(mWindowPhis[m]), nu_1);
             interpolate<6>(sSXN6, sSX6, sS6, nu_1, m);
             mBufferS.row(bufferLine) += sS6;
         }

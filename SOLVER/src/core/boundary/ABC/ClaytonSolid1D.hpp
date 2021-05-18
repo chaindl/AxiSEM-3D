@@ -14,7 +14,25 @@
 
 #include "ClaytonSolid.hpp"
 #include "numerical.hpp"
+#include "PointWindow.hpp"
 
+template <typename T>
+struct InterfaceRC_ClaytonSolid {
+};
+
+template <>
+struct InterfaceRC_ClaytonSolid<numerical::Real> {
+    inline static auto &getVeloc(const std::shared_ptr<PointWindow> pw) {return pw->getSolidFieldsR().mVeloc;};
+    inline static auto &getStiff(const std::shared_ptr<PointWindow> pw) {return pw->getSolidFieldsR().mStiffR;};
+};
+
+template <>
+struct InterfaceRC_ClaytonSolid<numerical::ComplexR> {
+    inline static auto &getVeloc(const std::shared_ptr<PointWindow> pw) {return pw->getSolidFieldsC().mVeloc;};
+    inline static auto &getStiff(const std::shared_ptr<PointWindow> pw) {return pw->getSolidFieldsC().mStiff;};
+};
+
+template<typename T>
 class ClaytonSolid1D: public ClaytonSolid {
 public:
     // constructor
@@ -46,5 +64,23 @@ private:
     // RSA (for transverse component)
     const numerical::Real mRSA;
 };
+
+// apply ABC
+template<typename T>
+void ClaytonSolid1D<T>::apply() const {
+    // get fields
+    const Eigen::Matrix<T, Eigen::Dynamic, 3> &veloc = InterfaceRC_ClaytonSolid<T>::getVeloc(mPointWindow);
+    Eigen::Matrix<T, Eigen::Dynamic, 3> &stiff = InterfaceRC_ClaytonSolid<T>::getStiff(mPointWindow);
+    
+    // s, z
+    stiff.col(0) -= (mRSA_CosT2_p_RPA_SinT2 * veloc.col(0) +
+                     mRPA_m_RSA_x_CosT_SinT * veloc.col(2));
+    stiff.col(2) -= (mRPA_m_RSA_x_CosT_SinT * veloc.col(0) +
+                     mRSA_SinT2_p_RPA_CosT2 * veloc.col(2));
+    
+    // phi
+    stiff.col(1) -= mRSA * veloc.col(1);
+}
+
 
 #endif /* ClaytonSolid1D_hpp */

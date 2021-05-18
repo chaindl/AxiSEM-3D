@@ -32,13 +32,13 @@ setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops) {
     
     // element
     for (int m = 0; m < mWindowPhis.size(); m++) {
-        mElement->prepareWavefieldOutput(chops, mWindowPhis[m].first, false);
+        mElement->prepareWavefieldOutput(chops, std::get<0>(mWindowPhis[m]), false);
     }
     
     // workspace
     int maxNu_1 = 0;
     for (int m = 0; m < mWindowPhis.size(); m++) {
-        maxNu_1 = std::max(maxNu_1, mElement->getWindowNu_1(mWindowPhis[m].first));
+        maxNu_1 = std::max(maxNu_1, mElement->getWindowNu_1_noBuffer(std::get<0>(mWindowPhis[m])));
     }
     expandWorkspaceRecord(maxNu_1, chops);
     expandWorkspaceProcess(dumpIntv, false);
@@ -50,28 +50,28 @@ setInGroup(int dumpIntv, const channel::fluid::ChannelOptions &chops) {
 void StationFluid::
 record(int bufferLine, const channel::fluid::ChannelOptions &chops) {
     for (int m = 0; m < mWindowPhis.size(); m++) {
-        int nu_1 = mElement->getWindowNu_1(mWindowPhis[m].first);
+        int nu_1 = mElement->getWindowNu_1_noBuffer(std::get<0>(mWindowPhis[m]));
         // chi
         if (chops.mNeedBufferX) {
-            mElement->getChiField(sXXN1, mWindowPhis[m].first);
+            mElement->getChiField(sXXN1, std::get<0>(mWindowPhis[m]));
             interpolate<1>(sXXN1, sXX1, sX1, nu_1, m);
             mBufferX.row(bufferLine) += sX1;
         }
         // displacement
         if (chops.mNeedBufferU) {
-            mElement->getDisplField(sUXN3, mMajorityDisplInRTZ, mWindowPhis[m].first);
+            mElement->getDisplField(sUXN3, mMajorityDisplInRTZ, std::get<0>(mWindowPhis[m]));
             interpolate<3>(sUXN3, sUX3, sU3, nu_1, m);
             mBufferU.row(bufferLine) += sU3;
         }
         // pressure
         if (chops.mNeedBufferP) {
-            mElement->getPressureField(sPXN1, mWindowPhis[m].first);
+            mElement->getPressureField(sPXN1, std::get<0>(mWindowPhis[m]));
             interpolate<1>(sPXN1, sPX1, sP1, nu_1, m);
             mBufferP.row(bufferLine) += sP1;
         }
         // delta
         if (chops.mNeedBufferD) {
-            mElement->getDeltaField(sDXN1, mWindowPhis[m].first);
+            mElement->getDeltaField(sDXN1, std::get<0>(mWindowPhis[m]));
             interpolate<1>(sDXN1, sDX1, sD1, nu_1, m);
             mBufferD.row(bufferLine) += sD1;
         }

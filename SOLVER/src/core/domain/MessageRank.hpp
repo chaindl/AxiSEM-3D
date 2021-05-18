@@ -72,8 +72,8 @@ private:
     std::vector<MeshPoint> mMeshPoints;
     
     // buffers
-    eigen::RColX mBufferSend = eigen::RColX(0);
-    eigen::RColX mBufferRecv = eigen::RColX(0);
+    eigen::CColX mBufferSend = eigen::CColX(0);
+    eigen::CColX mBufferRecv = eigen::CColX(0);
 };
 
 #endif /* MessageRank_hpp */

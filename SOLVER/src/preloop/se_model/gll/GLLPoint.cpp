@@ -14,8 +14,7 @@
 
 // point
 #include "Point.hpp"
-#include "SolidPointWindow.hpp"
-#include "FluidPointWindow.hpp"
+#include "PointWindow.hpp"
 #include "Mass1D.hpp"
 #include "Mass3D.hpp"
 #include "MassOceanLoad1D.hpp"
@@ -40,7 +39,8 @@
 
 // release to domain
 void GLLPoint::
-release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain) {
+release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain,
+    const std::shared_ptr<WindowInterpolator<numerical::Real>> &interpolator) {
     // point
     mPoint = std::make_shared<Point>
     (mGlobalTag, mCoords.transpose());
@@ -49,24 +49,37 @@ release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain) {
     // (currently only needed to separate solid and fluid windows
     // in Point but this may be expanded for discontinuous fluids 
     // and/or crack modelling)
-    std::vector<int> aligned;
-    eigen::DColX windowSumPhi;
-    computeWindowSumSampling(windowSumPhi, aligned);
+    eigen::DColX knotsWhole;
+    std::vector<eigen::DColX> relPhis(mWindows.size());
+    std::vector<eigen::IColX> posIndices(mWindows.size());
+    int nrWS;
+    computeWindowSumSampling(knotsWhole, relPhis, posIndices, nrWS);
     
-    bool hasSolidWins = std::any_of(mMassSolid.begin(), mMassSolid.end(), [](eigen::DColX mass) {return mass.rows() > 0;});
-    bool hasFluidWins = std::any_of(mMassFluid.begin(), mMassFluid.end(), [](eigen::DColX mass) {return mass.rows() > 0;});
-    std::shared_ptr<SolidWindowSum> sog = nullptr;
-    std::shared_ptr<FluidWindowSum> fog = nullptr;
+    bool hasSolidWins = std::any_of(mMassSolid.begin(), mMassSolid.end(), 
+                        [](eigen::DColX mass) {return mass.rows() > 0;});
+    bool hasFluidWins = std::any_of(mMassFluid.begin(), mMassFluid.end(), 
+                        [](eigen::DColX mass) {return mass.rows() > 0;});
+    
+    int interpTag = -1;
+    if (knotsWhole.size() > 0) {
+        int dim = hasSolidWins ? 3 : 1;
+        int nr = (*std::max_element(mWindows.begin(), mWindows.end(), 
+            [](const eigen::DMatX2 &win1, const eigen::DMatX2 &win2) {return (win1.rows() < win2.rows());})).rows();
+        interpTag = interpolator->addSplineFitting(knotsWhole.cast<numerical::Real>(), dim);
+    }
+    
+    std::shared_ptr<SFWindowSum<3>> sog = nullptr;
+    std::shared_ptr<SFWindowSum<1>> fog = nullptr;
     if (hasSolidWins) {
-        sog = std::make_shared<SolidWindowSum>(windowSumPhi.cast<numerical::Real>(), (mWindows.size() == 1));
+        sog = std::make_shared<SFWindowSum<3>>(interpolator, interpTag, nrWS);
     }
     if (hasFluidWins) {
-        fog = std::make_shared<FluidWindowSum>(windowSumPhi.cast<numerical::Real>(), (mWindows.size() == 1));
+        fog = std::make_shared<SFWindowSum<1>>(interpolator, interpTag, nrWS);
     }
-
+    
     for (int m = 0; m < mWindows.size(); m++) {
-        std::shared_ptr<FluidPointWindow> fpw = nullptr;
-        std::shared_ptr<SolidPointWindow> spw = nullptr;
+        std::shared_ptr<PointWindow> fpw = nullptr;
+        std::shared_ptr<PointWindow> spw = nullptr;
         
         //////////////////////////// reduce ////////////////////////////
         // variables to be reduced after setting up all Quads
@@ -115,10 +128,21 @@ release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain) {
                      op1D_3D::to3D(unitNormal, mWindows[m].rows()));
                 }
             }
+            // interpolator
+            interpTag = -1;
+            if (relPhis[m].size() > 0) interpTag = interpolator->addSplineFitting(
+                                                   eigen::RColX::LinSpaced(mWindows[m].rows(), 0, 1), 3);
+            
             // release
-            spw = std::make_shared<SolidPointWindow>(mWindows[m].cast<numerical::Real>(), mass, timeScheme, mPoint);
+            if (mGlobalWin[m]) {
+                spw = std::make_shared<SolidRCPointWindow<3, numerical::ComplexR>>(mass, mWindows[m].cast<numerical::Real>(), mPoint->getMeshTag());
+                spw->checkCompatibility(timeScheme);
+            } else {
+                spw = std::make_shared<SolidRCPointWindow<3, numerical::Real>>(mass, mWindows[m].cast<numerical::Real>(), mPoint->getMeshTag());
+                spw->checkCompatibility(timeScheme);
+            }
             mPoint->addWindow(spw);
-            sog->addSolidWindow(spw, aligned[m]);
+            sog->addWindow(spw, interpTag, posIndices[m], relPhis[m].cast<numerical::Real>());
         }
         
         // fluid point
@@ -132,10 +156,21 @@ release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain) {
                 // 3D mass
                 mass = std::make_unique<const Mass3D>(mMassFluid[m]);
             }
+            // interpolator
+            interpTag = -1;
+            if (relPhis[m].size() > 0) interpTag = interpolator->addSplineFitting(
+                                                   eigen::RColX::LinSpaced(mWindows[m].rows(), 0, 1), 1);
+            
             // release
-            fpw = std::make_shared<FluidPointWindow>(mWindows[m].cast<numerical::Real>(), mass, timeScheme, mPoint);
+            if (mGlobalWin[m]) {
+                fpw = std::make_shared<FluidRCPointWindow<1, numerical::ComplexR>>(mass, mWindows[m].cast<numerical::Real>(), mPoint->getMeshTag());
+                fpw->checkCompatibility(timeScheme);
+            } else {
+                fpw = std::make_shared<FluidRCPointWindow<1, numerical::Real>>(mass, mWindows[m].cast<numerical::Real>(), mPoint->getMeshTag());
+                fpw->checkCompatibility(timeScheme);
+            }
             mPoint->addWindow(fpw);
-            fog->addFluidWindow(fpw, aligned[m]);
+            fog->addWindow(fpw, interpTag, posIndices[m], relPhis[m].cast<numerical::Real>());
         }
         
         // check empty
@@ -143,7 +178,6 @@ release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain) {
             throw std::runtime_error("GLLPoint::release || "
                                      "Window is neither solid nor fluid.");
         }
-        
         
         //////////////////////////// boundaries ////////////////////////////
         // solid-fluid
@@ -185,13 +219,24 @@ release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain) {
                     std::unique_ptr<const ClaytonFluid> clayton = nullptr;
                     if (nABC.rows() == 1 && rhoVp.rows() == 1) {
                         // 1D fluid
-                        clayton = std::make_unique<const ClaytonFluid1D>
-                        (fpw, rhoVp(0), nABC.row(0).norm());
+                        if (mGlobalWin[m]) {
+                            clayton = std::make_unique<const ClaytonFluid1D<numerical::ComplexR>>
+                                      (fpw, rhoVp(0), nABC.row(0).norm());
+                        } else {
+                            clayton = std::make_unique<const ClaytonFluid1D<numerical::Real>>
+                                     (fpw, rhoVp(0), nABC.row(0).norm());  
+                        }
                     } else {
                         // 3D fluid
-                        clayton = std::make_unique<const ClaytonFluid3D>
-                        (fpw, op1D_3D::to3D(rhoVp, mWindows[m].rows()),
-                         op1D_3D::to3D(nABC, mWindows[m].rows()).rowwise().norm());
+                        if (mGlobalWin[m]) {
+                            clayton = std::make_unique<const ClaytonFluid3D_C>
+                                      (fpw, op1D_3D::to3D(rhoVp, mWindows[m].rows()),
+                                      op1D_3D::to3D(nABC, mWindows[m].rows()).rowwise().norm());
+                        } else {
+                            clayton = std::make_unique<const ClaytonFluid3D_R>
+                                      (fpw, op1D_3D::to3D(rhoVp, mWindows[m].rows()),
+                                      op1D_3D::to3D(nABC, mWindows[m].rows()).rowwise().norm());
+                        }
                     }
                     domain.getAbsorbingBoundary()->addClaytonFluid(clayton);
                 } else {
@@ -202,17 +247,27 @@ release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain) {
                         eigen::DCol2 nsz;
                         nsz << nABC(0, 0), nABC(0, 2);
                         const eigen::DCol2 &nrt = geodesy::sz2rtheta(nsz, false);
-                        clayton = std::make_unique<const ClaytonSolid1D>
-                        (spw, rhoVp(0), rhoVs(0), nrt(0), nrt(1));
+                        if (mGlobalWin[m]) {
+                            clayton = std::make_unique<const ClaytonSolid1D<numerical::ComplexR>>
+                                      (spw, rhoVp(0), rhoVs(0), nrt(0), nrt(1));
+                        } else {
+                            clayton = std::make_unique<const ClaytonSolid1D<numerical::Real>>
+                                      (spw, rhoVp(0), rhoVs(0), nrt(0), nrt(1));
+                        }
                     } else {
                         // 3D solid
                         const eigen::DColX &area = nABC.rowwise().norm();
                         const eigen::DMatX3 &unitNormal =
                         nABC.array().colwise() / area.array();
-                        clayton = std::make_unique<const ClaytonSolid3D>
-                        (spw,
-                         op1D_3D::to3D(rhoVp, mWindows[m].rows()), op1D_3D::to3D(rhoVs, mWindows[m].rows()),
-                         op1D_3D::to3D(area, mWindows[m].rows()), op1D_3D::to3D(unitNormal, mWindows[m].rows()));
+                        if (mGlobalWin[m]) {
+                            clayton = std::make_unique<const ClaytonSolid3D_C>
+                                      (spw, op1D_3D::to3D(rhoVp, mWindows[m].rows()), op1D_3D::to3D(rhoVs, mWindows[m].rows()),
+                                      op1D_3D::to3D(area, mWindows[m].rows()), op1D_3D::to3D(unitNormal, mWindows[m].rows()));
+                        } else {
+                            clayton = std::make_unique<const ClaytonSolid3D_R>
+                                      (spw, op1D_3D::to3D(rhoVp, mWindows[m].rows()), op1D_3D::to3D(rhoVs, mWindows[m].rows()),
+                                      op1D_3D::to3D(area, mWindows[m].rows()), op1D_3D::to3D(unitNormal, mWindows[m].rows()));
+                        }
                     }
                     domain.getAbsorbingBoundary()->addClaytonSolid(clayton);
                 }
@@ -224,22 +279,42 @@ release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain) {
             if (fpw) {
                 std::unique_ptr<const Sponge<1>> sponge_f = nullptr;
                 if (mGamma[m].rows() == 1) {
-                    sponge_f = std::make_unique<const
-                    Sponge<1>>(fpw, mGamma[m](0) / mCountGammasAdded[m]);
+                    if (mGlobalWin[m]) {
+                        sponge_f = std::make_unique<const
+                        Sponge_C<1>>(fpw, mGamma[m](0) / mCountGammasAdded[m]);
+                    } else {
+                        sponge_f = std::make_unique<const
+                        Sponge_R<1>>(fpw, mGamma[m](0) / mCountGammasAdded[m]);
+                    }
                 } else {
-                    sponge_f = std::make_unique<const
-                    Sponge<1>>(fpw, mGamma[m] / mCountGammasAdded[m]);
+                    if (mGlobalWin[m]) {
+                        sponge_f = std::make_unique<const
+                        Sponge_C<1>>(fpw, mGamma[m] / mCountGammasAdded[m]);
+                    } else {
+                        sponge_f = std::make_unique<const
+                        Sponge_R<1>>(fpw, mGamma[m] / mCountGammasAdded[m]);
+                    }
                 }
                 domain.getAbsorbingBoundary()->addSpongeFluid(sponge_f);
             }
             if (spw) {
                 std::unique_ptr<const Sponge<3>> sponge_s = nullptr;
                 if (mGamma[m].rows() == 1) {
-                    sponge_s = std::make_unique<const
-                    Sponge<3>>(spw, mGamma[m](0) / mCountGammasAdded[m]);
+                    if (mGlobalWin[m]) {
+                        sponge_s = std::make_unique<const
+                        Sponge_C<3>>(spw, mGamma[m](0) / mCountGammasAdded[m]);
+                    } else {
+                        sponge_s = std::make_unique<const
+                        Sponge_R<3>>(spw, mGamma[m](0) / mCountGammasAdded[m]);
+                    }
                 } else {
-                    sponge_s = std::make_unique<const
-                    Sponge<3>>(spw, mGamma[m] / mCountGammasAdded[m]);
+                    if (mGlobalWin[m]) {
+                        sponge_s = std::make_unique<const
+                        Sponge_C<3>>(spw, mGamma[m] / mCountGammasAdded[m]);
+                    } else {
+                        sponge_s = std::make_unique<const
+                        Sponge_R<3>>(spw, mGamma[m] / mCountGammasAdded[m]);
+                    }
                 }
                 domain.getAbsorbingBoundary()->addSpongeSolid(sponge_s);
             }

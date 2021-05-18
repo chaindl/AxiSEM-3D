@@ -10,7 +10,6 @@
 #ifndef Point_hpp
 #define Point_hpp
 
-#include "point_time.hpp"
 #include "PointWindow.hpp"
 #include "WindowSum.hpp"
 #include "vector_tools.hpp"
@@ -49,33 +48,31 @@ public:
     
     /////////////////////////// time loop ///////////////////////////
     void combineWindows() {
-        for (auto win: mWindows) {
-            //win->transformToPhysical(true);
+        for (std::shared_ptr<PointWindow> &win: mWindows) {
             win->transformToPhysical();
         }
-        for (auto ws: mWindowSums) {
+        for (std::shared_ptr<WindowSum> &ws: mWindowSums) {
             ws->overlapAndAddStiff();
         }
     };
 
     void separateWindows() {
-        for (auto ws: mWindowSums) {
+        for (std::shared_ptr<WindowSum> &ws: mWindowSums) {
             ws->scatterStiffToWindows();
         }
     };
 
     // stiff to accel
     void computeStiffToAccel() {
-        for (auto win: mWindows) {
+        for (std::shared_ptr<PointWindow> &win: mWindows) {
             win->computeStiffToAccel();
-            win->transformToFourier();
-            win->maskNyquist();
+            //win->transformToFourier();
             win->applyPressureSource();
         }
     };
 
     void countInfo(std::map<std::string, int> &typeCountPointWindow) {
-        for (auto win: mWindows) {
+        for (std::shared_ptr<PointWindow> &win: mWindows) {
             vector_tools::aggregate(typeCountPointWindow, win->typeInfo(), 1);
         }
     };
@@ -91,23 +88,25 @@ public:
     }
     
     void randomDispl() {
-        for (auto win: mWindows) {
+        for (std::shared_ptr<PointWindow> &win: mWindows) {
             win->randomDispl();
         }
-    };
+    }
+    
     void randomStiff() {
-        for (auto win: mWindows) {
+        for (std::shared_ptr<PointWindow> &win: mWindows) {
             win->randomStiff();
         }
-    };
+    }
+    
     void resetToZero() {
-        for (auto win: mWindows) {
+        for (std::shared_ptr<PointWindow> &win: mWindows) {
             win->resetToZero();
         }
-    };
+    }
     
     bool stable() const {
-        for (auto win: mWindows) {
+        for (const std::shared_ptr<PointWindow> &win: mWindows) {
             if (!win->stable()) return false;
         }
         return true;

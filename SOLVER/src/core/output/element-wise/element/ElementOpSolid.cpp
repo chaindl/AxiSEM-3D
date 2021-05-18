@@ -10,7 +10,7 @@
 
 #include "ElementOpSolid.hpp"
 #include "Element.hpp"
-
+#include <iostream>
 /////////////////////////// setup ///////////////////////////
 // set in group
 void ElementOpSolid::
@@ -55,21 +55,20 @@ record(int bufferLine, const channel::solid::ChannelOptions &chops,
        eigen::CMatXX &expIAlphaPhi, bool hasWindows) {
     bool needRTZ = (chops.mWCS == channel::WavefieldCS::RTZ);
     
+    int iscaling = 0;
     for (int m = 0; m < mPhiLocal.cols(); m++) {
         if (!(mPhiLocal.array() >= 0).col(m).any()) continue;
         
         int nu_1 = mElement->getWindowNu_1(m);
-        
         int iphi1 = 0;
         int nphi = 0;
         if (hasWindows) {
-            expIAlphaPhi = eigen::CMatXX::Zero(nu_1, (mPhiLocal.array() >= 0).col(m).count());
+            expIAlphaPhi.setZero();
             for (int iphi = 0; iphi < mPhiLocal.rows(); iphi++) {
                 if (mPhiLocal(iphi, m) < 0) continue;
                 if (nphi == 0) iphi1 = iphi;
-                eigen::CColX temp(nu_1);
-                eigen_tools::computeTwoExpIAlphaPhi(nu_1, mPhiLocal(iphi, m), temp);
-                expIAlphaPhi.col(nphi++) = temp;
+                eigen_tools::computeTwoExpIAlphaPhi(nu_1, mPhiLocal(iphi, m), expIAlphaPhi, nphi);
+                expIAlphaPhi.array().col(nphi++) *= mScaling[iscaling++];
             }
         } else {
             nphi = (int)expIAlphaPhi.cols();
@@ -77,27 +76,27 @@ record(int bufferLine, const channel::solid::ChannelOptions &chops,
         
         if (chops.mNeedBufferU) {
             mElement->getDisplField(sCUXN3, needRTZ, m);
-            recordToElem<3>(sCUXN3, nu_1, iphi1, nphi, sRUXN3, expIAlphaPhi,
+            recordToElem<3>(sCUXN3, mElement->getWindowNu_1_noBuffer(m), iphi1, nphi, sRUXN3, expIAlphaPhi,
                             mBufferU, bufferLine);
         }
         if (chops.mNeedBufferG) {
-            mElement->getNablaField(sCGXN9, needRTZ, m);
+            mElement->getNablaField(sCGXN9, needRTZ, m, nu_1);
             recordToElem<9>(sCGXN9, nu_1, iphi1, nphi, sRGXN9, expIAlphaPhi,
                             mBufferG, bufferLine);
         }
         if (chops.mNeedBufferE) {
-            mElement->getStrainField(sCEXN6, needRTZ, m);
+            mElement->getStrainField(sCEXN6, needRTZ, m, nu_1);
             recordToElem<6>(sCEXN6, nu_1, iphi1, nphi, sREXN6, expIAlphaPhi,
                             mBufferE, bufferLine);
             
         }
         if (chops.mNeedBufferR) {
-            mElement->getCurlField(sCRXN3, needRTZ, m);
+            mElement->getCurlField(sCRXN3, needRTZ, m, nu_1);
             recordToElem<3>(sCRXN3, nu_1, iphi1, nphi, sRRXN3, expIAlphaPhi,
                             mBufferR, bufferLine);
         }
         if (chops.mNeedBufferS) {
-            mElement->getStressField(sCSXN6, needRTZ, m);
+            mElement->getStressField(sCSXN6, needRTZ, m, nu_1);
             recordToElem<6>(sCSXN6, nu_1, iphi1, nphi, sRSXN6, expIAlphaPhi,
                             mBufferS, bufferLine);
         }

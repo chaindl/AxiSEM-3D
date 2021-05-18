@@ -5,7 +5,7 @@
 #include "GeneralNrField.hpp"
 #include "window_tools.hpp"
 #include "ExodusMesh.hpp"
-
+#include <iostream>
 NrField::NrField(const ExodusMesh &exodusMesh) {
     mDistTol = exodusMesh.getGlobalVariable("dist_tolerance");
   
@@ -21,7 +21,7 @@ NrField::NrField(const ExodusMesh &exodusMesh) {
     mWindowSize = inparam::gInparamNr.get<int>("Nr_windows:azimuthal_window_size");
     mAlign = inparam::gInparamNr.get<bool>("Nr_windows:align_azimuthal_sampling_points");
 
-    mWindowMinNr = 2 * mOverlapMinNr + 1;
+    mWindowMinNr = 2 * mOverlapMinNr + 2;
 }
 
 std::vector<std::pair<double, double>> NrField::makeNodalNrAtPoint(const eigen::DCol2 &sz) const {
@@ -83,8 +83,6 @@ std::pair<eigen::DMatX2, eigen::IMatX4> NrField::makeElementalNrWindows(
     
     if (!local_fields) {
         std::pair<eigen::DMatX2, eigen::IMatX4> elementalNrWindows(eigen::DMatX2::Zero(1, 2), eigen::IMatX4::Zero(1, 4));
-        elementalNrWindows.first(0, 0) = 0.;
-        elementalNrWindows.first(0, 1) = 0.;
         for (int i = 0; i < 4; i++) {
             elementalNrWindows.second(0, i) = (int)round(ElementalNr[i].mPhiNrWin[0].second);
         }
@@ -108,7 +106,7 @@ std::pair<eigen::DMatX2, eigen::IMatX4> NrField::makeElementalNrWindows(
         std::fill(half_ol.begin(), half_ol.end(), mOverlapPhi / 2);
     } else {
         for (int m = 0; m < ElementalNr[0].M(); m++) {
-           int m_next = (m + 1) % ElementalNr[0].M();
+           int m_next = window_tools::nextWin(m, ElementalNr[0].M());
            
            double min_nr_upscaled = std::numeric_limits<double>::max();
            for (int inode = 0; inode < 4; inode++) {
@@ -131,7 +129,7 @@ std::pair<eigen::DMatX2, eigen::IMatX4> NrField::makeElementalNrWindows(
             
             fracSizeIncrease = 1;
         } else {
-            int m_next = (m + 1) % ElementalNr[0].M();
+            int m_next = window_tools::nextWin(m, ElementalNr[0].M());
               
             phi1 = window_tools::setBounds2Pi(ElementalNr[0].mPhiNrWin[m].first - half_ol[m]);
             phi2 = window_tools::setBounds2Pi(ElementalNr[0].mPhiNrWin[m_next].first + half_ol[m]);
@@ -152,11 +150,11 @@ std::pair<eigen::DMatX2, eigen::IMatX4> NrField::makeElementalNrWindows(
     
     return elementalNrWindows;
 }
-    
+#include <iostream>
 void NrField::finalizeNrWindows(
     std::vector<std::unique_ptr<std::tuple<eigen::DRow4, eigen::IRowN, eigen::IRowN, bool>>> &quadWins,
     eigen::DRow2 phi_undivided, eigen::IRowN nr_undivided,
-    double phi2_prev, double phi1_next, double s) const {
+    double phi2_prev, double phi1_next, double s, bool out) const {
      
     bool subdivision = false;
     int nwin_prev = quadWins.size();
@@ -170,22 +168,18 @@ void NrField::finalizeNrWindows(
         // calculate overlap
         int min_nr = nr_undivided.minCoeff();
         
-        double overlap;
-        if (mOverlapPhi > 0) {
-            overlap = mOverlapPhi;
-        } else {
-            overlap = win_size / min_nr * mOverlapMinNr;
-        }
-        double regWinPhi = overlap * mWindowSize; // inner size
+        double overlap = std::max(mOverlapPhi, win_size / (min_nr - 1) * (mOverlapMinNr - 1));
+        double regWinPhi = std::max(overlap * mWindowSize, overlap + 2 * win_size / (min_nr - 1)); // inner size
         
         // recalculate exact window size for regular intervals
-        double win_size_corrected = window_tools::setBounds2Pi(phi2_prev - phi1_next);
-        if (win_size_corrected < angle_tol) win_size_corrected += 2 * numerical::dPi;
-        win_size_corrected += overlap;
+        double win_size_corrected = win_size;
+        if (win_size < 2 * numerical::dPi) { // multiple windows -> consider potentially different overlap
+            win_size_corrected = window_tools::setBounds2Pi(phi1_next - phi2_prev) + overlap;
+        }
         int nwin = (int)floor((win_size_corrected + angle_tol) / (regWinPhi));
-        regWinPhi = win_size / nwin;
+        regWinPhi = win_size_corrected / nwin;
 
-        if (nwin > 1 && min_nr / nwin >= mWindowMinNr) {
+        if (nwin > 1 && min_nr / nwin >= mWindowMinNr && min_nr == 108) {
             subdivision = true;
             
             quadWins.resize(quadWins.size() + nwin);
@@ -193,7 +187,7 @@ void NrField::finalizeNrWindows(
             eigen::IRowN nr_sub;
             if (mAlign) {
                 eigen::IRowN nr_ol = (nr_undivided.array().cast<double>() * overlap / win_size).array().round().cast<int>();
-                nr_sub = (nr_ol.array() * (mWindowSize + 1)) + 1;
+                nr_sub = nr_ol.array() * (mWindowSize + 1) + 1;
             } else {
                 nr_sub = (nr_undivided.array().cast<double>() * (regWinPhi + overlap) / win_size).array().round().cast<int>() + 1;
                 if (mUseLuckyNumbers) {
@@ -201,14 +195,10 @@ void NrField::finalizeNrWindows(
                 }
             }
             
-            if (win_size >= 2 * numerical::dPi - angle_tol) { // single window -> add overlap
-                phi_undivided(0) = window_tools::setBounds2Pi(phi_undivided(0) - overlap / 2);
-                phi_undivided(1) = window_tools::setBounds2Pi(phi_undivided(1) + overlap / 2);
-                phi2_prev = phi_undivided(1);
-                phi1_next = phi_undivided(0);  
+            if (win_size >= 2 * numerical::dPi) { // single window -> add overlap
+                phi2_prev = window_tools::setBounds2Pi(phi2_prev + overlap / 2);
+                phi1_next = window_tools::setBounds2Pi(phi1_next - overlap / 2);
             }
-            
-            
             
             // to easily calculate regular window positions we 
             // ignore potentially different overlaps from other windows
@@ -219,13 +209,12 @@ void NrField::finalizeNrWindows(
                        window_tools::setBounds2Pi(phi_start + m * regWinPhi + overlap),
                        window_tools::setBounds2Pi(phi_start + (m + 1) * regWinPhi),
                        window_tools::setBounds2Pi(phi_start + (m + 1) * regWinPhi + overlap);
-                std::tuple<eigen::DRow4, eigen::IRowN, eigen::IRowN, bool> win_tuple = std::make_tuple(phi, nr_sub, eigen::IRowN::Constant(1, spectral::nPEM, -1), true);
                 quadWins[nwin_prev + m] = std::make_unique<std::tuple<eigen::DRow4, eigen::IRowN, eigen::IRowN, bool>>();
                 *quadWins[nwin_prev + m] = std::make_tuple(phi, nr_sub, eigen::IRowN::Constant(1, spectral::nPEM, -1), true);
             }
             
             // re-introduce potentially different overlaps from start and end
-            if (win_size < 2 * numerical::dPi - angle_tol) { // not needed for single window
+            if (win_size < 2 * numerical::dPi) { // not needed for single window
                 double fracSizeDiff;
                 // first window
                 (std::get<0>(*quadWins[nwin_prev]))(0) = phi_undivided(0);

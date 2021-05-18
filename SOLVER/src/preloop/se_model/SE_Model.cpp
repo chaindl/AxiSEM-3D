@@ -77,12 +77,15 @@ mDistToleranceMesh(exodusMesh.getGlobalVariable("dist_tolerance")) {
     
     // finished 3D properties
     timer::gPreloopTimer.begin("Finishing applying 3D models to Quads");
-    for (Quad &quad: mQuads) {
-        quad.finishing3D();
-    }
-    Undulation::finished3D();
-    for (Quad &quad: mQuads) {
-        quad.finished3D();
+    {
+        WindowInterpolator<double> undulationBufferer;
+        for (Quad &quad: mQuads) {
+            quad.finishing3D(undulationBufferer);
+        }
+        Undulation::finished3D();
+        for (Quad &quad: mQuads) {
+            quad.finished3D(undulationBufferer);
+        }
     }
     timer::gPreloopTimer.ended("Finishing applying 3D models to Quads");
     
@@ -93,7 +96,6 @@ mDistToleranceMesh(exodusMesh.getGlobalVariable("dist_tolerance")) {
         quad.setupGLL(abc, localMesh, mGLLPoints);
     }
     timer::gPreloopTimer.ended("Setting up GLL points");
-    
     ///////////////// assemble mpi /////////////////
     timer::gPreloopTimer.begin("Assembling mass and normal");
     // init mpi buffer
@@ -207,20 +209,25 @@ computeDt(double courant, const ABC &abc, eigen::DCol2 &sz) const {
 void SE_Model::release(const ABC &abc, const LocalMesh &localMesh,
                        const std::unique_ptr<const AttBuilder> &attBuilder,
                        const TimeScheme &timeScheme, Domain &domain) {
+                         
+    std::shared_ptr<WindowInterpolator<numerical::Real>> interpolator = std::make_shared<WindowInterpolator<numerical::Real>>();
     // points
     timer::gPreloopTimer.begin("Releasing GLL points");
     for (GLLPoint &point: mGLLPoints) {
-        point.release(abc, timeScheme, domain);
+        point.release(abc, timeScheme, domain, interpolator);
     }
     timer::gPreloopTimer.ended("Releasing GLL points");
     
     // elements
     timer::gPreloopTimer.begin("Releasing elements");
     for (Quad &quad: mQuads) {
-        quad.release(localMesh, mGLLPoints, attBuilder, domain);
+        quad.release(localMesh, mGLLPoints, attBuilder, interpolator, domain);
     }
     timer::gPreloopTimer.ended("Releasing elements");
     
+    interpolator->finalize();
+    
+    //exit(0);
     // mpi
     timer::gPreloopTimer.begin("Releasing messaging");
     std::unique_ptr<Messaging> msg = std::make_unique<Messaging>();
@@ -275,7 +282,6 @@ measureCost(const ExodusMesh &exodusMesh, const LocalMesh &localMesh,
         std::shared_ptr<Point> p = mGLLPoints[igll].getPoint();
         return point_time::measure(*p, count, timeScheme);
     };
-    
     
     ////////// measure elements //////////
     timer::gPreloopTimer.begin("Measuring element cost library");

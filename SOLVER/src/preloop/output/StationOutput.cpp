@@ -431,10 +431,12 @@ void StationOutput::release(const SE_Model &sem, Domain &domain, double dt,
             sem.computeInplaneFactor(spz({0, 2}).transpose(), quadTag);
             
             // get windows from phi
-            eigen::DRowX phi_local = quads[quadTag].computeRelativeWindowPhis(std::vector<double>{spz(1)}).row(0);
-            std::vector<std::pair<int, double>> windowPhis;
+            std::vector<double> windowFractions;
+            eigen::DRowX phi_local = quads[quadTag].computeRelativeWindowPhis(std::vector<double>{spz(1)}, windowFractions).row(0).transpose();
+            std::vector<std::tuple<int, double, double>> windowPhis;
+            int ifrac = 0;
             for (int m = 0; m < phi_local.size(); m++) {
-                if (phi_local(m) >= 0) windowPhis.push_back(std::make_pair(m,phi_local(m)));
+                if (phi_local(m) >= 0) windowPhis.push_back(std::make_tuple(m, phi_local(m), windowFractions[ifrac++]));
             }
             
             // station

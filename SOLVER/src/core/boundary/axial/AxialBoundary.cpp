@@ -10,10 +10,6 @@
 
 #include "AxialBoundary.hpp"
 
-// point
-#include "SolidPointWindow.hpp"
-#include "FluidPointWindow.hpp"
-
 // domain
 #include "Messaging.hpp"
 

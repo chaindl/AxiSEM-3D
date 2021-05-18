@@ -16,8 +16,8 @@
 class SolidFluidCoupling3D: public SolidFluidCoupling {
 public:
     // constructor
-    SolidFluidCoupling3D(const std::shared_ptr<SolidPointWindow> &spw,
-                         const std::shared_ptr<FluidPointWindow> &fpw,
+    SolidFluidCoupling3D(const std::shared_ptr<PointWindow> &spw,
+                         const std::shared_ptr<PointWindow> &fpw,
                          const eigen::DMatX3 &n_unassmb,
                          const eigen::DMatX3 &n_assmb,
                          const eigen::DColX &massFluid);
@@ -30,11 +30,15 @@ public:
     // solid => fluid
     void coupleSolidToFluid(const eigen::CMatX3 &solidDispl,
                             eigen::CColX &fluidStiff) const;
+    void coupleSolidToFluid(const eigen::RMatX3 &solidDispl,
+                            eigen::RColX &fluidStiff) const;
     
     // fluid => solid
     void coupleFluidToSolid(const eigen::CColX &fluidStiff,
                             eigen::CMatX3 &solidStiff) const;
-    
+    void coupleFluidToSolid(const eigen::RColX &fluidStiff,
+                            eigen::RMatX3 &solidStiff) const;
+                            
 private:
     // These two normal vectors enable isochronous MPI communication for solid
     // and fluid domains. Though it is bad practice to mix MPI and physics,

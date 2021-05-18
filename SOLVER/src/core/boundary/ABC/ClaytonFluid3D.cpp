@@ -9,11 +9,11 @@
 //  Clayton-Enquist ABC for fluid points in 3D
 
 #include "ClaytonFluid3D.hpp"
-#include "FluidPointWindow.hpp"
+#include "PointWindow.hpp"
 #include "fft.hpp"
 
 // check compatibility
-void ClaytonFluid3D::checkCompatibility() {
+void ClaytonFluid3D_C::checkCompatibility() const {
     // check size
     int nr = mPointWindow->getNr();
     if (nr != mAreaOverRhoVp.rows()) {
@@ -31,11 +31,21 @@ void ClaytonFluid3D::checkCompatibility() {
     fft::gFFT_1.addNR(nr);
 }
 
+// check compatibility
+void ClaytonFluid3D_R::checkCompatibility() const {
+    // check size
+    int nr = mPointWindow->getNr();
+    if (nr != mAreaOverRhoVp.rows()) {
+        throw std::runtime_error("ClaytonFluid3D::checkCompatibility ||"
+                                 "Incompatible sizes.");
+    }
+}
+
 // apply ABC
-void ClaytonFluid3D::apply() const {
+void ClaytonFluid3D_C::apply() const {
     // get fields
-    const eigen::CColX &veloc = mPointWindow->getFluidFields().mVeloc;
-    eigen::CColX &stiff = mPointWindow->getFluidFields().mStiff;
+    const eigen::CColX &veloc = mPointWindow->getFluidFieldsC().mVeloc;
+    eigen::CColX &stiff = mPointWindow->getFluidFieldsC().mStiff;
     
     // constants
     int nr = mPointWindow->getNr();
@@ -52,4 +62,16 @@ void ClaytonFluid3D::apply() const {
     
     // subtract
     stiff -= sVecC.topRows(nu_1);
+}
+
+// apply ABC
+void ClaytonFluid3D_R::apply() const {
+    // get fields
+    const eigen::RColX &veloc = mPointWindow->getFluidFieldsR().mVeloc;
+    eigen::RColX &stiff = mPointWindow->getFluidFieldsR().mStiffR;
+    
+    // subtract
+    stiff -= veloc.cwiseProduct(mAreaOverRhoVp);
+    
+    
 }

@@ -60,6 +60,7 @@ namespace eigen {
     typedef Eigen::Matrix<double, Dynamic, 2> DMatX2;
     typedef Eigen::Matrix<int, Dynamic, nPEM> IMatXN;
     typedef Eigen::Matrix<int, Dynamic, 4> IMatX4;
+    typedef Eigen::Matrix<int, 2, 1> ICol2;
 }
 
 

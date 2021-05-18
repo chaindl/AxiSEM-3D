@@ -27,6 +27,11 @@ public:
         // nothing
     }
     
+    // (R,T,Z) -> (s,phi,z)
+    void transformRTZ_SPZ3(eigen::ar3_RMatPP_RM &ui) const {
+        // nothing
+    }
+    
     // (s,phi,z) -> (R,T,Z) for nabla
     void transformSPZ_RTZ9(eigen::vec_ar9_CMatPP_RM &nij, int nu_1) const {
         // nothing
@@ -34,6 +39,11 @@ public:
     
     // (R,T,Z) -> (s,phi,z) for nabla
     void transformRTZ_SPZ9(eigen::vec_ar9_CMatPP_RM &nij, int nu_1) const {
+        // nothing
+    }
+    
+    // (R,T,Z) -> (s,phi,z) for nabla
+    void transformRTZ_SPZ9(eigen::ar9_RMatPP_RM &nij) const {
         // nothing
     }
     

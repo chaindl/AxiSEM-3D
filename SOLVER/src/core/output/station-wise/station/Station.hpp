@@ -39,9 +39,8 @@ public:
     }
     
     // set element: inplane weights and nu
-    void setElement(const std::shared_ptr<Element> &element, 
-                    const eigen::DRowN &weights,
-                    const std::vector<std::pair<int, double>> &windowPhis);
+    void setElement(const std::shared_ptr<Element> &element, const eigen::DRowN &weights,
+                    const std::vector<std::tuple<int, double, double>> &windowPhis);
     
 protected:
   
@@ -70,9 +69,9 @@ protected:
         eigen_tools::computeFourierAtPhiExp(xd, nu_1, m2ExpIAlphaPhi[m], d);
 #else
         // compute exp on-the-fly
-        eigen_tools::computeTwoExpIAlphaPhi(nu_1, mWindowPhis[m].second, s2ExpIAlphaPhi);
+        eigen_tools::computeTwoExpIAlphaPhi(nu_1, std::get<1>(mWindowPhis[m]), s2ExpIAlphaPhi);
         // sum exp
-        eigen_tools::computeFourierAtPhiExp(xd, nu_1, s2ExpIAlphaPhi, d);
+        eigen_tools::computeFourierAtPhiExp(xd, nu_1, s2ExpIAlphaPhi.array() * std::get<2>(mWindowPhis[m]), d);
 #endif
     }
     
@@ -213,7 +212,7 @@ protected:
     
     // azimuth for Fourier interpolation
     const double mPhi;
-    std::vector<std::pair<int,double>> mWindowPhis;
+    std::vector<std::tuple<int, double, double>> mWindowPhis;
     
     ////////////////////////////////////////
     //////////////// static ////////////////

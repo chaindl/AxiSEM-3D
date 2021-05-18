@@ -13,22 +13,38 @@
 #include "timer.hpp"
 #include "bstring.hpp"
 #include "Point.hpp"
-
+#include <iostream>
 namespace point_time {
     // create fields
     void createFields(PointWindow &pw, const TimeScheme &timeScheme) {
         const std::string &className = bstring::typeName(timeScheme);
         if (className == "NewmarkTimeScheme") {
             if (pw.isFluid()) {
-                NewmarkTimeScheme::createFields(pw.getFluidFields(), pw.getNu_1(), pw.getNr());
+                if (pw.storesFieldsInFourier()) {
+                    NewmarkTimeScheme::createFields(pw.getFluidFieldsC(), pw.getNu_1(), pw.getNr(), pw.getNu_1());
+                } else {
+                    NewmarkTimeScheme::createFields(pw.getFluidFieldsR(), pw.getNu_1(), pw.getNr(), pw.getNr());
+                }
             } else {
-                NewmarkTimeScheme::createFields(pw.getSolidFields(), pw.getNu_1(), pw.getNr());
+                if (pw.storesFieldsInFourier()) {
+                    NewmarkTimeScheme::createFields(pw.getSolidFieldsC(), pw.getNu_1(), pw.getNr(), pw.getNu_1());
+                } else {
+                    NewmarkTimeScheme::createFields(pw.getSolidFieldsR(), pw.getNu_1(), pw.getNr(), pw.getNr());
+                }
             }
         } else if (className == "SymplecticTimeScheme") {
             if (pw.isFluid()) {
-                SymplecticTimeScheme::createFields(pw.getFluidFields(), pw.getNu_1(), pw.getNr());
+                if (pw.storesFieldsInFourier()) {
+                    SymplecticTimeScheme::createFields(pw.getFluidFieldsC(), pw.getNu_1(), pw.getNr(), pw.getNu_1());
+                } else {
+                    SymplecticTimeScheme::createFields(pw.getFluidFieldsR(), pw.getNu_1(), pw.getNr(), pw.getNr());
+                }
             } else {
-                SymplecticTimeScheme::createFields(pw.getSolidFields(), pw.getNu_1(), pw.getNr());
+                if (pw.storesFieldsInFourier()) {
+                    SymplecticTimeScheme::createFields(pw.getSolidFieldsC(), pw.getNu_1(), pw.getNr(), pw.getNu_1());
+                } else {
+                    SymplecticTimeScheme::createFields(pw.getSolidFieldsR(), pw.getNu_1(), pw.getNr(), pw.getNr());
+                }
             }
         } else {
             throw std::runtime_error("point_time::createFields || "
@@ -53,9 +69,17 @@ namespace point_time {
                 point.computeStiffToAccel();
                 for (const std::shared_ptr<PointWindow> &pw: point.getWindows()) {
                     if (pw->isFluid()) {
-                        NewmarkTimeScheme::update(pw->getFluidFields(), half, half, half);
+                        if (pw->storesFieldsInFourier()) {
+                            NewmarkTimeScheme::update(pw->getFluidFieldsC(), half, half, half);
+                        } else {
+                            NewmarkTimeScheme::update(pw->getFluidFieldsR(), half, half, half);
+                        }
                     } else {
-                        NewmarkTimeScheme::update(pw->getSolidFields(), half, half, half);
+                        if (pw->storesFieldsInFourier()) {
+                            NewmarkTimeScheme::update(pw->getSolidFieldsC(), half, half, half);
+                        } else {
+                            NewmarkTimeScheme::update(pw->getSolidFieldsR(), half, half, half);
+                        }
                     }
                 }
             }
@@ -68,9 +92,17 @@ namespace point_time {
                 point.computeStiffToAccel();
                 for (const std::shared_ptr<PointWindow> &pw: point.getWindows()) {
                     if (pw->isFluid()) {
-                        SymplecticTimeScheme::update(pw->getFluidFields(), half, half);
+                        if (pw->storesFieldsInFourier()) {
+                            SymplecticTimeScheme::update(pw->getFluidFieldsC(), half, half);
+                        } else {
+                            SymplecticTimeScheme::update(pw->getFluidFieldsR(), half, half);
+                        }    
                     } else {
-                        SymplecticTimeScheme::update(pw->getSolidFields(), half, half);
+                        if (pw->storesFieldsInFourier()) {
+                            SymplecticTimeScheme::update(pw->getSolidFieldsC(), half, half);
+                        } else {
+                            SymplecticTimeScheme::update(pw->getSolidFieldsR(), half, half);
+                        } 
                     }
                 }
             }

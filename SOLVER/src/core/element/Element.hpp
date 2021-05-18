@@ -27,7 +27,9 @@ class Element {
 public:
     // constructor
     Element(const int &quadTag, std::vector<std::unique_ptr<ElementWindow>> &windows, 
-            const std::array<std::shared_ptr<Point>, spectral::nPEM> &points);
+            const std::array<std::shared_ptr<Point>, spectral::nPEM> &points,
+            const std::shared_ptr<WinInt> &interpolator,
+            const eigen::IMatX2 &interpTags);
     
     // copy constructor
     Element(const Element &other);
@@ -35,17 +37,37 @@ public:
 private:
 
     void expandWorkspace(const int nr) {
-        sWin1ToWin2.resize(nr, 1);
-        sWin2ToWin1.resize(nr, 1);
+        if (sWin1ToWin2.rows() < nr) {
+            sWin1ToWin2.resize(nr, spectral::nPEM * 6);
+            sWin2ToWin1.resize(nr, spectral::nPEM * 6);
+        }
+        
+        if (sStrainWindows.size() < mWindows.size()) sStrainWindows.resize(mWindows.size());
+        for (int m = 0; m < mWindows.size(); m++) {
+            if (sStrainWindows[m].rows() < mWindows[m]->getNr()) sStrainWindows[m].resize(mWindows[m]->getNr(), spectral::nPEM * 6);
+        }
     };
     
     std::vector<std::unique_ptr<ElementWindow>> copyWindows() const {
+        typedef FluidElementWindow<FluidRCPointWindow<1, numerical::Real>> rfw;
+        typedef FluidElementWindow<FluidRCPointWindow<1, numerical::ComplexR>> cfw;
+        typedef SolidElementWindow<SolidRCPointWindow<3, numerical::Real>> rsw;
+        typedef SolidElementWindow<SolidRCPointWindow<3, numerical::ComplexR>> csw;
+        
         std::vector<std::unique_ptr<ElementWindow>> newWins;
         for (int m = 0; m < mWindows.size(); m++) {
             if (mWindows[m]->isFluid()) {
-                newWins.push_back(std::make_unique<FluidElementWindow>(*dynamic_cast<FluidElementWindow*>(mWindows[m].get())));
+                if (mWindows.size() > 1) {
+                    newWins.push_back(std::make_unique<rfw>(*dynamic_cast<rfw*>(mWindows[m].get())));
+                } else {
+                    newWins.push_back(std::make_unique<cfw>(*dynamic_cast<cfw*>(mWindows[m].get())));
+                }
             } else {
-                newWins.push_back(std::make_unique<SolidElementWindow>(*dynamic_cast<SolidElementWindow*>(mWindows[m].get())));
+                if (mWindows.size() > 1) {
+                    newWins.push_back(std::make_unique<rsw>(*dynamic_cast<rsw*>(mWindows[m].get())));
+                } else {
+                    newWins.push_back(std::make_unique<csw>(*dynamic_cast<csw*>(mWindows[m].get())));
+                }
             }
         }
         return newWins;
@@ -88,8 +110,16 @@ public:
     const eigen::DRow2 &getPointCoords(int ipnt) const;
     
     int getWindowNr(int m) const {return mWindows[m]->getNr();};
-    int getWindowNu_1(int m) const {return mWindows[m]->getNu_1();};
+    int getWindowNu_1(int m) const {return mWindows[m]->getNu_1_buffered();};
+    int getWindowNu_1_noBuffer(int m) const {return mWindows[m]->getNu_1();};
     int getMaxNu_1() const {
+        int max_nu_1 = -1;
+        for (auto &win: mWindows) {
+            max_nu_1 = std::max({max_nu_1, win->getNu_1_buffered()});
+        }
+        return max_nu_1;
+    };
+    int getMaxNu_1_noBuffer() const {
         int max_nu_1 = -1;
         for (auto &win: mWindows) {
             max_nu_1 = std::max({max_nu_1, win->getNu_1()});
@@ -99,23 +129,6 @@ public:
     
     int getQuadTag() const {return mQuadTag;};
     
-    void setAlignment(const double tol) {
-        if (mWindows.size() == 1) {
-            mWindows[0]->setAlignment(true);
-            return;
-        }
-        
-        for (int m = 0; m < mWindows.size(); m++) {
-            int mnext = (m == mWindows.size() - 1) ? 0 : m + 1;
-            eigen::RColX phi_next = mWindows[mnext]->getPhiForInterp(1);
-            eigen::RColX phi = mWindows[m]->getPhiForInterp(0);
-            if (phi_next.size() == phi.size()) {
-                if ((phi_next - phi).norm() < tol) {
-                    mWindows[m]->setAlignment(true);
-                }
-            }
-        }
-    }
     std::vector<int> findBoundaryPointsByTag(const std::vector<int> &boundaryMeshTags) const;
     std::vector<int> findBoundaryPointsByCrds(const std::vector<double> &boundaryCrdsRorZ,
                          const std::vector<double> &boundaryCrdsTorS, double distTol) const;
@@ -141,7 +154,6 @@ public:
     double measure(int count) const;
     
     void overlapAndAddStrain() const;
-    void interpolate(const eigen::RColX &phi_q, eigen::RColX &fun, const eigen::RColX &phi, const int side) const;
     
     /////////////////////////// source ///////////////////////////
     void preparePressureSource(int m) const {
@@ -183,61 +195,61 @@ public:
         }                           
     }
     
-    bool getMajorityDisplInRTZ(const std::vector<std::pair<int,double>> &windowPhis) const {
+    bool getMajorityDisplInRTZ(const std::vector<std::tuple<int, double, double>> &windowPhis) const {
         int nInRTZ = 0, nNotInRTZ = 0;
         for (auto &winPhi: windowPhis) {
-            if (mWindows[winPhi.first]->displInRTZ()) {
-                nInRTZ += mWindows[winPhi.first]->getNu_1();
+            if (mWindows[std::get<0>(winPhi)]->displInRTZ()) {
+                nInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             } else {
-                nNotInRTZ += mWindows[winPhi.first]->getNu_1();
+                nNotInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             }
         }
         return (nInRTZ > nNotInRTZ);
     }
     
-    bool getMajorityNablaInRTZ(const std::vector<std::pair<int,double>> &windowPhis) const {
+    bool getMajorityNablaInRTZ(const std::vector<std::tuple<int, double, double>> &windowPhis) const {
         int nInRTZ = 0, nNotInRTZ = 0;
         for (auto &winPhi: windowPhis) {
-            if (mWindows[winPhi.first]->nablaInRTZ()) {
-                nInRTZ += mWindows[winPhi.first]->getNu_1();
+            if (mWindows[std::get<0>(winPhi)]->nablaInRTZ()) {
+                nInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             } else {
-                nNotInRTZ += mWindows[winPhi.first]->getNu_1();
+                nNotInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             }
         }
         return (nInRTZ > nNotInRTZ);
     }
     
-    bool getMajorityStrainInRTZ(const std::vector<std::pair<int,double>> &windowPhis) const {
+    bool getMajorityStrainInRTZ(const std::vector<std::tuple<int, double, double>> &windowPhis) const {
         int nInRTZ = 0, nNotInRTZ = 0;
         for (auto &winPhi: windowPhis) {
-            if (mWindows[winPhi.first]->strainInRTZ()) {
-                nInRTZ += mWindows[winPhi.first]->getNu_1();
+            if (mWindows[std::get<0>(winPhi)]->strainInRTZ()) {
+                nInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             } else {
-                nNotInRTZ += mWindows[winPhi.first]->getNu_1();
+                nNotInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             }
         }
         return (nInRTZ > nNotInRTZ);
     }
     
-    bool getMajorityCurlInRTZ(const std::vector<std::pair<int,double>> &windowPhis) const {
+    bool getMajorityCurlInRTZ(const std::vector<std::tuple<int, double, double>> &windowPhis) const {
         int nInRTZ = 0, nNotInRTZ = 0;
         for (auto &winPhi: windowPhis) {
-            if (mWindows[winPhi.first]->curlInRTZ()) {
-                nInRTZ += mWindows[winPhi.first]->getNu_1();
+            if (mWindows[std::get<0>(winPhi)]->curlInRTZ()) {
+                nInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             } else {
-                nNotInRTZ += mWindows[winPhi.first]->getNu_1();
+                nNotInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             }
         }
         return (nInRTZ > nNotInRTZ);
     }
     
-    bool getMajorityStressInRTZ(const std::vector<std::pair<int,double>> &windowPhis) const {
+    bool getMajorityStressInRTZ(const std::vector<std::tuple<int, double, double>> &windowPhis) const {
         int nInRTZ = 0, nNotInRTZ = 0;
         for (auto &winPhi: windowPhis) {
-            if (mWindows[winPhi.first]->stressInRTZ()) {
-                nInRTZ += mWindows[winPhi.first]->getNu_1();
+            if (mWindows[std::get<0>(winPhi)]->stressInRTZ()) {
+                nInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             } else {
-                nNotInRTZ += mWindows[winPhi.first]->getNu_1();
+                nNotInRTZ += mWindows[std::get<0>(winPhi)]->getNu_1();
             }
         }
         return (nInRTZ > nNotInRTZ);
@@ -257,13 +269,13 @@ public:
     
     //// Solid only
     // nabla field
-    void getNablaField(eigen::CMatXN9 &nabla, bool needRTZ, int m) const;
+    void getNablaField(eigen::CMatXN9 &nabla, bool needRTZ, int m, int &nu) const;
     // strain field
-    void getStrainField(eigen::CMatXN6 &strain, bool needRTZ, int m) const;
+    void getStrainField(eigen::CMatXN6 &strain, bool needRTZ, int m, int &nu) const;
     // curl field
-    void getCurlField(eigen::CMatXN3 &curl, bool needRTZ, int m) const;
+    void getCurlField(eigen::CMatXN3 &curl, bool needRTZ, int m, int &nu) const;
     // stress field
-    void getStressField(eigen::CMatXN6 &stress, bool needRTZ, int m) const;
+    void getStressField(eigen::CMatXN6 &stress, bool needRTZ, int m, int &nu) const;
     
 private:
     // points
@@ -273,8 +285,13 @@ private:
     std::array<std::shared_ptr<Point>, spectral::nPEM> mPoints;
     std::shared_ptr<const CoordTransform> mTransform;
     
-    inline static eigen::RColX sWin1ToWin2;
-    inline static eigen::RColX sWin2ToWin1;
+    const std::shared_ptr<WinInt> mInterpolator;
+    eigen::IMatX2 mInterpTags;
+    inline static eigen::RMatXN6 sWin1ToWin2 =
+    eigen::RMatXN6(0, spectral::nPEM * 6);;
+    inline static eigen::RMatXN6 sWin2ToWin1 =
+    eigen::RMatXN6(0, spectral::nPEM * 6);;
+    inline static std::vector<eigen::RMatXN6> sStrainWindows = std::vector<eigen::RMatXN6>(0);
 };
 
 #endif /* FluidElement_hpp */

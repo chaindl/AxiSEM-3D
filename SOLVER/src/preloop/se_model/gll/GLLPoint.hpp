@@ -14,17 +14,17 @@
 
 #include "eigen_sem.hpp"
 #include "window_tools.hpp"
+#include "SFRCPointWindow.hpp"
+#include "WindowInterpolator.hpp"
 #include <map>
 #include <vector>
 #include <memory>
-
+#include <iostream>
 // release
 class ABC;
 class TimeScheme;
 class Domain;
 class Point;
-class SolidPointWindow;
-class FluidPointWindow;
 
 typedef std::tuple<int, int, double> winmap;
 
@@ -37,7 +37,7 @@ public:
             // set by the first element
             mGlobalTag = globalTag;
             mCoords = coords;
-            mAngleTol = distTol / mCoords(0);
+            mAngleTol = (mCoords(0) > numerical::dEpsilon) ? distTol / mCoords(0) : numerical::dPi / 5;
         } else {
             // check subsequent elements
             if (mGlobalTag != globalTag ||
@@ -51,7 +51,7 @@ public:
     }
     
     // add window
-    eigen::IColX addWindows(const std::vector<eigen::DMatX2> &wins) {      
+    eigen::IColX addWindows(const std::vector<eigen::DMatX2> &wins, const bool globalWin) {      
         eigen::IColX tags = eigen::IColX::Constant(wins.size(), -1);
         
         // first set of windows added
@@ -59,30 +59,30 @@ public:
             for (int mn = 0; mn < wins.size(); mn++) {
                 tags(mn) = mWindows.size();
                 mWindows.push_back(wins[mn]);
+                mGlobalWin.push_back(globalWin);
             }
             mNumNewWins = mWindows.size();
             allocateNewWindows();
             mNumNewWins = 0;
             return tags;
         }
-        
+
         // pre-existing windows
         std::vector<bool> found(mWindows.size(), false);
-        for (int mn = 0; mn < wins.size(); mn++) {
-            for (int mo = 0; mo < mWindows.size(); mo++) {
-                if (std::abs(mWindows[mo](0, 0) - wins[mn](0, 0)) < mAngleTol &&
-                    std::abs(mWindows[mo](mWindows[mo].rows() - 1, 0) - wins[mn](mWindows[mo].rows() - 1, 0))  < mAngleTol) {
-                    if (wins[mn].rows() != mWindows[mo].rows()) {
-                        throw std::runtime_error("GLLPoint::addWindows || "
-                                         "Conflict in nr window setup.");
+        for (int mo = 0; mo < mWindows.size(); mo++) {
+            for (int mn = 0; mn < wins.size(); mn++) {
+                if (std::abs(mWindows[mo](0, 0) - wins[mn](0, 0)) < mAngleTol) {
+                    if ((mGlobalWin[mo] && globalWin)          // case 1 : both global windows (no need for equal nr)
+                        || (wins[mn].rows() == mWindows[mo].rows() // case 2 : local windows with equal nr and dphi
+                            && std::abs(mWindows[mo](1, 0) - wins[mn](1, 0)) < mAngleTol)) {
+                        found[mo] = true;
+                        tags(mn) = mo;
+                        break;
                     }
-                    found[mo] = true;
-                    tags(mn) = mo;
-                    break;
                 }
             }
         }
-        
+
         // all windows equal
         if (tags.minCoeff() >= 0) return tags;
         mNumNewWins = (tags.array() < 0).count();
@@ -103,8 +103,9 @@ public:
         std::map<double, winmap> angle_map_new;
         for (int mn = 0; mn < wins.size(); mn++) {
             if (tags(mn) >= 0) continue;
-            mWindows.push_back(wins[mn]);
             tags(mn) = mWindows.size();
+            mWindows.push_back(wins[mn]);
+            mGlobalWin.push_back(globalWin);
             found.push_back(false);
             for (int alpha = 0; alpha < wins[mn].rows(); alpha++) {
                 angle_map_new.insert(std::pair<double, winmap>(wins[mn](alpha, 0), {tags(mn), alpha, 0.}));
@@ -243,6 +244,7 @@ public:
             mWindowsFromOtherRanks.push_back(startAndSpacing);
         }
         mWindows.resize(mWindows.size() - mNumNewWins);
+        mGlobalWin.resize(mWindows.size() - mNumNewWins);
         mMassFluid.resize(mWindows.size());
         mMassSolid.resize(mWindows.size());
         mNormalSFA.resize(mWindows.size());
@@ -366,11 +368,12 @@ public:
         // window info
         buffer(row + 1, 0) = mWindows.size();
         row += 2;
-        for (auto &win: mWindows) {
-            buffer(row + 0, 0) = win(0, 0);
-            buffer(row + 1, 0) = win(win.rows() - 1, 0);
-            buffer(row + 2, 0) = win.rows();
-            row += 3;
+        for (int m = 0; m < mWindows.size(); m++) {
+            buffer(row + 0, 0) = mWindows[m](0, 0);
+            buffer(row + 1, 0) = mWindows[m](mWindows[m].rows() - 1, 0);
+            buffer(row + 2, 0) = mWindows[m].rows();
+            buffer(row + 3, 0) = mGlobalWin[m];
+            row += 4;
         }
         
         for (int m = 0; m < mWindows.size(); m++) {
@@ -412,12 +415,14 @@ public:
         row += 2;
         // gather window information and add new ones if needed
         std::vector<eigen::DMatX2> wins(M);
+        bool globalWin;
         for (int m = 0 ; m < M; m++) {
             wins[m] = eigen::DMatX2::Zero(buffer(row + 2, 0), 2);
             wins[m].col(0) = eigen::DColX::LinSpaced(buffer(row + 2, 0), buffer(row + 0, 0), buffer(row + 1, 0));
-            row += 3;
+            globalWin = (bool)round(buffer(row + 3, 0));
+            row += 4;
         }
-        eigen::IColX winTags = addWindows(wins);
+        eigen::IColX winTags = addWindows(wins, globalWin);
         for (int m = 0 ; m < M; m++) {
             // size info
             int sizeMassFluid = (int)round(buffer(row, 0));
@@ -454,14 +459,26 @@ public:
     
     
     // release to domain
-    void release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain);
+    void release(const ABC &abc, const TimeScheme &timeScheme, Domain &domain, 
+         const std::shared_ptr<WindowInterpolator<numerical::Real>> &interpolator);
     
     // get Point after release
     const std::shared_ptr<Point> &getPoint() const {
         return mPoint;
     }
-    const std::shared_ptr<FluidPointWindow> &getFluidPointWindow(int m) const {return mFluidPointWindows[m];};
-    const std::shared_ptr<SolidPointWindow> &getSolidPointWindow(int m) const {return mSolidPointWindows[m];};
+    
+    const std::shared_ptr<FluidRCPointWindow<1, numerical::ComplexR>> getFluidPointWindowC(int m) const {
+        return std::dynamic_pointer_cast<FluidRCPointWindow<1, numerical::ComplexR>>(mFluidPointWindows[m]);
+    };
+    const std::shared_ptr<SolidRCPointWindow<3, numerical::ComplexR>> getSolidPointWindowC(int m) const {
+        return std::dynamic_pointer_cast<SolidRCPointWindow<3, numerical::ComplexR>>(mSolidPointWindows[m]);
+    };
+    const std::shared_ptr<FluidRCPointWindow<1, numerical::Real>> getFluidPointWindowR(int m) const {
+        return std::dynamic_pointer_cast<FluidRCPointWindow<1, numerical::Real>>(mFluidPointWindows[m]);
+    };
+    const std::shared_ptr<SolidRCPointWindow<3, numerical::Real>> getSolidPointWindowR(int m) const {
+        return std::dynamic_pointer_cast<SolidRCPointWindow<3, numerical::Real>>(mSolidPointWindows[m]);
+    };
     
     // get global tag
     int getGlobalTag() const {
@@ -474,56 +491,95 @@ public:
     }
     
 private:
-    void computeWindowSumSampling(eigen::DColX &windowSumPhi, std::vector<int> &aligned) const {
+    void computeWindowSumSampling(eigen::DColX &knotsWhole, std::vector<eigen::DColX> &relPhis, 
+                                  std::vector<eigen::IColX> &posIndices, int &nr) {
+        // no windows sum required except for messaging
         if (mWindows.size() == 1 && mWindowsFromOtherRanks.size() == 0) {
-            aligned.push_back(true);
-            windowSumPhi = mWindows[0].col(0);
+            nr = mWindows[0].rows();
             return;
         } 
-      
-        double min_dphi = std::numeric_limits<double>::max();
-        double min_phi1 = std::numeric_limits<double>::max();
-        for (auto &win: mWindows) {
-            double dphi = window_tools::setBounds2Pi(win(1, 0) - win(0, 0));
-            if (dphi < min_dphi) {
+        
+        // find minimal sampling
+        double min_dphi = window_tools::setBounds2Pi(mWindows[0](1, 0) - mWindows[0](0, 0));
+        double min_phi1 = mWindows[0](0, 0);
+        for (int m = 1; m < mWindows.size(); m++) {
+            double dphi = window_tools::setBounds2Pi(mWindows[m](1, 0) - mWindows[m](0, 0));
+            if (dphi < min_dphi - mAngleTol) {
                 min_dphi = dphi;
-                min_phi1 = win(0, 0);
-            } else if (dphi == min_dphi && win(0, 0) < min_phi1) {
-                min_phi1 = win(0, 0);
+                min_phi1 = mWindows[m](0, 0);
+            } else if (abs(dphi - min_dphi) < mAngleTol && mWindows[m](0, 0) < min_phi1) {
+                min_phi1 = mWindows[m](0, 0);
             }
         }
         
-        bool not_aligned = false;
+        // check if there is smaller sampling on other ranks
         for (auto &win: mWindowsFromOtherRanks) {
             if (win(1) < min_dphi) {
                 min_dphi = win(1);
                 min_phi1 = win(0);
-                not_aligned = true;
-            } else if (win(1) == min_dphi && win(0, 0) < min_phi1) {
+            } else if (abs(win(1) - min_dphi) < mAngleTol && win(0) < min_phi1) {
                 min_phi1 = win(0);
-                not_aligned = true;
             }
         }
         
-        int nr = (int)ceil((2 * numerical::dPi - mAngleTol) / min_dphi);
+        // set physical sampling for window sum
+        // (this must be consistent between ranks
+        // for messaging)
+        nr = (int)ceil((2 * numerical::dPi - mAngleTol) / min_dphi);
         double dphi_sum = 2 * numerical::dPi / nr;
-        
-        if (std::abs(dphi_sum - min_dphi) > mAngleTol) not_aligned = true;
-        
-        windowSumPhi = eigen::DColX::LinSpaced(nr, min_phi1, min_phi1 + 2 * numerical::dPi - dphi_sum);
+        eigen::DColX windowSumPhi = eigen::DColX::LinSpaced(nr, min_phi1, min_phi1 + 2 * numerical::dPi - dphi_sum);
         window_tools::wrapPhi(windowSumPhi);
         
-        aligned.resize(mWindows.size(), -1);
-        if (not_aligned) return;
-        
-        for (int m; m < mWindows.size(); m++) {
+        // process windows which are aligned (i.e. azimuthal sampling points 
+        // are co-located with azimuthal sampling points from window sum)
+        std::vector<bool> aligned(mWindows.size());
+        for (int m = 0; m < mWindows.size(); m++) {
             double dphi = window_tools::setBounds2Pi(mWindows[m](1, 0) - mWindows[m](0, 0));
-            if (std::abs(dphi - dphi_sum) > mAngleTol) continue;
-            for (int i = 0; i < windowSumPhi.rows(); i++) {
-                if (std::abs(windowSumPhi(i) - mWindows[m](0, 0)) < mAngleTol) {
-                    aligned[m] = i;
-                    break;
+            aligned[m] = false;
+            if (std::abs(dphi - dphi_sum) <= mAngleTol) {
+                for (int i = 0; i < windowSumPhi.rows(); i++) {
+                    if (std::abs(windowSumPhi(i) - mWindows[m](0, 0)) < mAngleTol) {
+                        posIndices[m] = eigen::IColX::LinSpaced(mWindows[m].rows(), i, i + mWindows[m].rows() - 1);
+                        posIndices[m] = posIndices[m].unaryExpr([windowSumPhi](const int idx) { return idx%((int)windowSumPhi.rows()); });
+                        aligned[m] = true;
+                        break;
+                    }
                 }
+            }
+        }
+        
+        // no interpolation required
+        if (std::all_of(aligned.begin(), aligned.end(), [](bool a){ return a; })) return;
+        
+        // calculate knots for spline interpolation
+        // (extend on both sides to create periodic BC)
+        int nr_ext = nr + 2 * interpolation::NrExtend;
+        knotsWhole = eigen::DColX::LinSpaced(nr_ext, 0, 1);
+        
+        // process windows which are not aligned 
+        window_tools::unwrapPhi(windowSumPhi);
+        for (int m = 0; m < mWindows.size(); m++) {
+            if (!aligned[m]) {
+                double phi_start = mWindows[m](0, 0);
+                double phi_end = mWindows[m](mWindows[m].rows() - 1, 0);
+                if (phi_start < windowSumPhi(0)) phi_start += 2 * numerical::dPi;
+                if (phi_end < windowSumPhi(0)) phi_end += 2 * numerical::dPi;
+                int i1 = 0, i2 = 2;
+                while (i1 < windowSumPhi.rows() && windowSumPhi(i1) < phi_start) i1++;
+                while (i2 < windowSumPhi.rows() && windowSumPhi(i2) < phi_end) i2++;
+                i2 -= 1;
+                if (i2 < i1) i2 += windowSumPhi.rows();
+                posIndices[m] = eigen::IColX::LinSpaced(i2 - i1 + 1, i1, i2);
+                posIndices[m] = posIndices[m].unaryExpr([windowSumPhi](const int idx) { return idx%((int)windowSumPhi.rows()); });
+                relPhis[m] = windowSumPhi(i1%windowSumPhi.rows())
+                           + eigen::DColX::LinSpaced(posIndices[m].rows(), 0, (posIndices[m].rows() - 1)).array() * dphi_sum;
+                double windowSize = phi_end - phi_start;
+                if (windowSize < 0) windowSize += 2 * numerical::dPi;
+                // relative phis needed for interpolation from window to window sum
+                relPhis[m] = (relPhis[m].array() - phi_start) / windowSize;
+                
+                // relative phis needed for interpolation from window sum to window
+                mWindows[m].col(0) = (mWindows[m].col(0).array() + interpolation::NrExtend * dphi_sum) / ((nr_ext - 1) * dphi_sum);
             }
         }
     };
@@ -535,6 +591,7 @@ private:
     
     // nr
     std::vector<eigen::DMatX2> mWindows; // phi + winFunc
+    std::vector<bool> mGlobalWin;
     std::vector<eigen::DCol2> mWindowsFromOtherRanks; // phi1 + dphi (only used to determine finest azimuthal sampling for window sum)
     double mAngleTol;
     
@@ -577,8 +634,8 @@ private:
     
     // pointers after release
     std::shared_ptr<Point> mPoint = nullptr;
-    std::vector<std::shared_ptr<SolidPointWindow>> mSolidPointWindows;
-    std::vector<std::shared_ptr<FluidPointWindow>> mFluidPointWindows;
+    std::vector<std::shared_ptr<PointWindow>> mSolidPointWindows;
+    std::vector<std::shared_ptr<PointWindow>> mFluidPointWindows;
 };
 
 #endif /* GLLPoint_hpp */

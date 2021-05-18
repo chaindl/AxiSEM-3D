@@ -28,14 +28,13 @@ void MessageRank::setUpWindowSums() {
     
     // allocate buffers
     int sizeComm = 0;
-    //std::cout << "allocating, should have about " << mMeshPoints.size() * 30 << std::endl;
     for (auto iter = mMeshPoints.begin(); iter != mMeshPoints.end(); iter++) {
         for (const auto &ws: std::get<1>(*iter)) {
             sizeComm += ws->sizeComm();
         }
     }
-    mBufferSend = eigen::RColX::Zero(sizeComm);
-    mBufferRecv = eigen::RColX::Zero(sizeComm);
+    mBufferSend = eigen::CColX::Zero(sizeComm);
+    mBufferRecv = eigen::CColX::Zero(sizeComm);
 }
 
 void MessageRank::finalizeComms() {
@@ -44,11 +43,9 @@ void MessageRank::finalizeComms() {
 
 // gather from points
 void MessageRank::gatherFromPointWindows() {
-    //std::cout << "gathering..." << std::endl;
     int row = 0;
     for (auto iter = mMeshPoints.begin(); iter != mMeshPoints.end(); iter++) {
         for (const auto &ws: std::get<1>(*iter)) {
-            //std::cout << "feed..." << std::endl;
             ws->feedComm(mBufferSend, row);
         }
     }

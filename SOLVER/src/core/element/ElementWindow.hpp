@@ -17,35 +17,40 @@
 #include "PRT.hpp"
 #include "eigen_point.hpp"
 #include "channel.hpp"
+#include "WindowInterpolator.hpp"
+
+#include <iostream>
 // Real-typed GradientQuadrature
 typedef GradientQuadrature<numerical::Real> GradQuad;
+typedef WindowInterpolator<numerical::Real> WinInt;
 
 // point
 class PointWindow;
-class FluidElementWindow;
-class SolidElementWindow;
 
 class ElementWindow {
 public:
     // constructor
-    ElementWindow(std::unique_ptr<const GradQuad> &gq,
-            std::unique_ptr<const PRT> &prt, std::array<eigen::RMatX2, 2> overlapPhi):
-    mGradQuad(gq.release()), mPRT(prt.release()), mOverlapPhi(overlapPhi) {
-        // nothing
+    ElementWindow(std::unique_ptr<const GradQuad> &gq, std::unique_ptr<const PRT> &prt, 
+            std::array<eigen::RMatX2, 2> overlapPhi, std::shared_ptr<WinInt> interpolator):
+    mGradQuad(gq.release()), mPRT(prt.release()), mOverlapPhi(overlapPhi), mInterpolator(interpolator) {
+        
+        if (interpolator) mFTBufferNr = interpolation::SplineOrder;
     }
     
     // copy constructor
     ElementWindow(const ElementWindow &other):
     mGradQuad(std::make_unique<GradQuad>(*(other.mGradQuad))),
     mPRT(other.mPRT == nullptr ? nullptr :
-         std::make_unique<PRT>(*(other.mPRT))) {
-        // nothing 
+         std::make_unique<PRT>(*(other.mPRT))), mOverlapPhi(other.mOverlapPhi),
+    mInterpolator(other.mInterpolator) {
+        if (other.mFTBufferSplineTag > 0) setUpBufferedFourierTransform();
     }
-    
+        
     void pointWindowSet(bool elemInFourier) {
         // order
         mNr = getMaxNrFromPoints();
         mNu_1 = mNr / 2 + 1;
+        mNu_1_buffered = (mNr + mFTBufferNr) / 2 + 1;
         
         // check compatibility
         mGradQuad->checkCompatibility(mNr);
@@ -70,17 +75,14 @@ public:
         return ss.str();
     }
     
-    int getNrOverlap(int side) const {return mOverlapPhi[side].rows();};
+    int getNrOverlap(const int side) const {return mOverlapPhi[side].rows();};
     
-    eigen::RColX getPhiForInterp(const int side) const {return mOverlapPhi[side].col(0);};
-    virtual void getStrainForInterp(eigen::RColX &strain, const int side, const int dim) const = 0;
+    const eigen::RMatX2 &getPhiAndFuncForInterp(const int side) const {return mOverlapPhi[side];};
     virtual int getDimStrain() const = 0;
-    void setAlignment(bool aligned) {mAligned = aligned;};
+
     /////////////////////////// point ///////////////////////////
     // get point
     virtual PointWindow &getPointWindow(int ipnt) const = 0;
-    
-    bool overlapIsAligned() const {return mAligned;};
     
     // point set
     void pointSet(bool elemInFourier);
@@ -97,19 +99,33 @@ public:
         return mNu_1;
     }
     
+    // get nu
+    int getNu_1_buffered() const {
+        return mNu_1_buffered;
+    }
+    
     bool elasticInRTZ() const {return false;};
     
-    virtual void randomPointWindowsDispl() const = 0;
-    virtual void resetPointWindowsToZero() const = 0;
+    virtual void randomPointWindowsDispl() = 0;
+    virtual void resetPointWindowsToZero() = 0;
         
     /////////////////////////// time loop ///////////////////////////
     // displacement to stiffness
     virtual void displToStrain() const = 0;
-    virtual void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform) const = 0;
-    virtual void strainToStress() const = 0;
+    virtual void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform, eigen::RMatXN6 &strain) const = 0;
+    virtual void strainToStress(const eigen::RMatXN6 &strain) const = 0;
     virtual void transformStressToFourier(const std::shared_ptr<const CoordTransform> &transform) const = 0;
-    virtual void stressToStiffness() const = 0;
-    virtual void addOverlapToStrain(const eigen::RColX &strain, const int side, const int dim) const = 0;
+    virtual void stressToStiffness(const int tag) const = 0;
+    
+    template<class Mat>
+    void addFTBuffer(Mat &field, eigen::RRowX &BFSMnorm) const {
+        BFSMnorm.leftCols(field.cols()) = (field.row(mNr - 1).array() - field.row(0).array()) / (mNr - 1);
+        field.topRows(mNr).noalias() -= eigen::RColX::LinSpaced(mNr, 0, mNr - 1) * BFSMnorm.leftCols(field.cols());
+        
+        mInterpolator->newDataWithIndexing(mFTBufferSplineTag, field, mFTBufferIdx);
+        
+        mInterpolator->interpolate(mFTBufferSplineTag, field, interpolation::BufferQuery, mNr, field.cols());
+    }
     
     /////////////////////////// source ///////////////////////////
     virtual void prepareForceSource() const {
@@ -171,23 +187,44 @@ public:
         throw std::runtime_error("ElementWindow::getDeltaField || unavailable in solid.");
     }
     // solid only
-    virtual void getNablaField(eigen::CMatXN9 &nabla, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
+    virtual void getNablaField(eigen::CMatXN9 &nabla, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ, int &nu) const {
         throw std::runtime_error("ElementWindow::getNableField || unavailable in fluid.");
     }
-    virtual void getStrainField(eigen::CMatXN6 &strain, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
+    virtual void getStrainField(eigen::CMatXN6 &strain, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ, int &nu) const {
         throw std::runtime_error("ElementWindow::getStrainField || unavailable in fluid.");
     }
-    virtual void getCurlField(eigen::CMatXN3 &curl, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
+    virtual void getCurlField(eigen::CMatXN3 &curl, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ, int &nu) const {
         throw std::runtime_error("ElementWindow::getCurlField || unavailable in fluid.");
     }
-    virtual void getStressField(eigen::CMatXN6 &stress, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const {
+    virtual void getStressField(eigen::CMatXN6 &stress, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ, int &nu) const {
         throw std::runtime_error("ElementWindow::getStressField || unavailable in fluid.");
     }
     
-private:
+protected:
+    void setUpBufferedFourierTransform() {
+        mFTBufferIdx = eigen::IColX::Zero(mFTBufferNr, 1);
+        
+        eigen::RColX knots(mFTBufferNr);
+        knots << eigen::RColX::LinSpaced(mFTBufferNr / 2, 0, mFTBufferNr / 2 - 1), 
+                 eigen::RColX::LinSpaced(mFTBufferNr / 2, 3 * mFTBufferNr / 2, 4 * mFTBufferNr / 2 - 1);
+                 
+        knots.array() /= 2 * mFTBufferNr - 1;
+        for (int n = 0; n < mFTBufferNr / 2; n++) {
+            mFTBufferIdx(n) = mNr - mFTBufferNr / 2 + n;
+            mFTBufferIdx(mFTBufferNr / 2 + n) = n;
+        }
+        mFTBufferSplineTag = mInterpolator->addSplineFitting(knots, (isFluid() ? 3 * spectral::nPEM : 6 * spectral::nPEM));
+    }
+
+private:    
     virtual int getMaxNrFromPoints() const = 0;
     
+    eigen::IColX mFTBufferIdx;
+    int mFTBufferSplineTag = -1;
+    
 protected:
+    const std::shared_ptr<WinInt> mInterpolator;
+    
     // gradient operator
     const std::unique_ptr<const GradQuad> mGradQuad = nullptr;
     
@@ -196,11 +233,15 @@ protected:
     
     // order
     int mNr = 0;
+    int mFTBufferNr = 0;
     int mNu_1 = 0;
+    int mNu_1_buffered = 0;
     
-    // this is phi and frac on left side <0> and phi and frac on right side <1>
+    // this is phi (scaled) and frac on left side <0> and phi and frac on right side <1>
     std::array<eigen::RMatX2, 2> mOverlapPhi;
-    bool mAligned;
+    
+    mutable eigen::RMatXX tester1 = eigen::RMatXX::Zero(8, 6 * spectral::nPEM);
+    mutable eigen::IColX tester2 = eigen::IColX::Zero(8);
 };
 
 #endif /* Element_hpp */

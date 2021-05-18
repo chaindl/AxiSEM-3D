@@ -458,7 +458,8 @@ void ElementOutput::release(const SE_Model &sem, Domain &domain, double dt,
         for (int ielem = 0; ielem < opQuadsUse.size(); ielem++) {
             const std::vector<int> &ipnts =
             (elgrp->mEdgeDim < 0) ? ipntsElemUniform : ipntsElem[ielem];
-            eigen::DMatXX phiLocal = quads[opQuadsUse[ielem]].computeRelativeWindowPhis(phisToUse);
+            std::vector<double> windowFractions;
+            eigen::DMatXX phiLocal = quads[opQuadsUse[ielem]].computeRelativeWindowPhis(phisToUse, windowFractions);
             if (phiLocal.cols() > 1) {
                 hasWindows = true;
                 if (phisToUse.size() == 0) {
@@ -471,12 +472,12 @@ void ElementOutput::release(const SE_Model &sem, Domain &domain, double dt,
             if (elgrp->mFluid) {
                 std::unique_ptr<ElementOpFluid> eop =
                 std::make_unique<ElementOpFluid>(ipnts);
-                eop->setElement(quads[opQuadsUse[ielem]].getElement(), phiLocal.cast<numerical::Real>());
+                eop->setElement(quads[opQuadsUse[ielem]].getElement(), phiLocal.cast<numerical::Real>(), windowFractions);
                 EGF->addElementOp(eop);
             } else {
                 std::unique_ptr<ElementOpSolid> eop =
                 std::make_unique<ElementOpSolid>(ipnts);
-                eop->setElement(quads[opQuadsUse[ielem]].getElement(), phiLocal.cast<numerical::Real>());
+                eop->setElement(quads[opQuadsUse[ielem]].getElement(), phiLocal.cast<numerical::Real>(), windowFractions);
                 EGS->addElementOp(eop);
             }
         }

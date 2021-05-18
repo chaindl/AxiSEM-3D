@@ -82,6 +82,19 @@ public:
         }
     }
     
+    int getNr() const {
+        if (*this) {
+            // max nr on element
+            int maxNr = 0;
+            for (int ipnt = 0; ipnt < M; ipnt++) {
+                maxNr = std::max(maxNr, (int)mGLL[ipnt].rows());
+            }
+            return maxNr;
+        } else {
+            return 0;
+        }
+    }
+    
     // set GLL
     void setGLL(const arM_DColX &gll) {
         mGLL = gll;

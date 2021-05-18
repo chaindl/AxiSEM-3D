@@ -22,7 +22,7 @@ public:
             
     void finalizeNrWindows(std::vector<std::unique_ptr<std::tuple<eigen::DRow4, 
             eigen::IRowN, eigen::IRowN, bool>>> &quadWins, eigen::DRow2 phi_undivided, 
-            eigen::IRowN nr_undivided, double phi2_prev, double phi1_next, double s) const;
+            eigen::IRowN nr_undivided, double phi2_prev, double phi1_next, double s, bool out) const;
             
     int getOverlapMinNr() const {return mOverlapMinNr;};
     

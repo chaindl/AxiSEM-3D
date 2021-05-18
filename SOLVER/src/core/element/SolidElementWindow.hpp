@@ -12,10 +12,14 @@
 #define SolidElementWindow_hpp
 
 #include "ElementWindow.hpp"
-
+#include "SFRCPointWindow.hpp"
+// output
+#include "mapPPvsN.hpp"
+// measure
+#include "timer.hpp"
 // point
 #include <array>
-class SolidPointWindow;
+class PointWindow;
 
 // material
 #include "Elastic.hpp"
@@ -23,18 +27,31 @@ class SolidPointWindow;
 // output
 #include "channel.hpp"
 
+template <class SolidPointWindow>
 class SolidElementWindow: public ElementWindow {
 public:
     // constructor
     SolidElementWindow(std::unique_ptr<const GradQuad> &grad,
                  std::unique_ptr<const PRT> &prt,
                  std::unique_ptr<const Elastic> &elastic,
-                 const std::array<std::shared_ptr<SolidPointWindow>,
-                 spectral::nPEM> &pointWindows, 
-                 std::array<eigen::RMatX2, 2> overlapPhi);
+                 const std::array<std::shared_ptr<SolidPointWindow>, spectral::nPEM> &pointWindows, 
+                 std::array<eigen::RMatX2, 2> overlapPhi,
+                 std::shared_ptr<WinInt> interpolator):
+    ElementWindow(grad, prt, overlapPhi, interpolator), mElastic(elastic.release()),
+    mInFourier((mPRT ? mPRT->is1D() : true) && mElastic->is1D() && !interpolator),
+    mPointWindows(pointWindows) {
+        // construct derived
+        constructDerived();
+    };
     
     // copy constructor
-    SolidElementWindow(const SolidElementWindow &other);
+    SolidElementWindow(const SolidElementWindow &other):
+    ElementWindow(other), mElastic(other.mElastic->clone()),
+    mInFourier((mPRT ? mPRT->is1D() : true) && mElastic->is1D() && !mInterpolator),
+    mPointWindows(other.mPointWindows) {
+        // construct derived
+        constructDerived();
+    };
     
 private:
     // construct derived
@@ -54,23 +71,24 @@ public:
     /////////////////////////// time loop ///////////////////////////
 private:
     // collect displacement from points (only called internally by displToStrain)
+    void collectDisplAndBuffer() const;
     void collectDisplFromPointWindows(eigen::vec_ar3_CMatPP_RM &displElem) const;
+    void collectDisplFromPointWindows(eigen::RMatXN3 &displElem) const;
     // scatter stiffness to points (only called internally by stressToStiffness)
-    void addStiffToPointWindows(eigen::vec_ar3_CMatPP_RM &stiffElem) const;
+    void addStiffToPointWindows(const eigen::vec_ar3_CMatPP_RM &stiffElem) const;
+    void addStiffToPointWindows(const eigen::RMatX3 &stiffElem) const;
+    void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform) const;
     
 public:
     // displacement to stiffness
     void displToStrain() const;
-    void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform) const;
-    void getStrainForInterp(eigen::RColX &strain, const int side, const int dim) const;
-    void addOverlapToStrain(const eigen::RColX &strain, const int side, const int dim) const;
-    void strainToStress() const;
+    void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform, eigen::RMatXN6 &strain) const;
+    void strainToStress(const eigen::RMatXN6 &strain) const;
     void transformStressToFourier(const std::shared_ptr<const CoordTransform> &transform) const;
-    void stressToStiffness() const;
-    
+    void stressToStiffness(const int tag) const;
     // for measuring cost
-    void randomPointWindowsDispl() const;
-    void resetPointWindowsToZero() const;
+    void randomPointWindowsDispl();
+    void resetPointWindowsToZero();
     
     /////////////////////////// source ///////////////////////////
     // force given in SPZ
@@ -91,10 +109,10 @@ public:
     
     // get fields
     void getDisplField(eigen::CMatXN3 &displ, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
-    void getNablaField(eigen::CMatXN9 &nabla, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
-    void getStrainField(eigen::CMatXN6 &strain, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
-    void getCurlField(eigen::CMatXN3 &curl, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
-    void getStressField(eigen::CMatXN6 &stress, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ) const;
+    void getNablaField(eigen::CMatXN9 &nabla, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ, int &nu) const;
+    void getStrainField(eigen::CMatXN6 &strain, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ, int &nu) const;
+    void getCurlField(eigen::CMatXN3 &curl, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ, int &nu) const;
+    void getStressField(eigen::CMatXN6 &stress, const std::shared_ptr<const CoordTransform> &transform, bool needRTZ, int &nu) const;
     
     // displ crd
     bool displInRTZ() const {
@@ -127,7 +145,7 @@ private:
     
     // 1D element in Fourier space
     const bool mInFourier;
-    mutable bool mSE;
+
     // points
     std::array<std::shared_ptr<SolidPointWindow>, spectral::nPEM> mPointWindows;
     
@@ -158,6 +176,14 @@ private:
         sStressSpherical_CD.resize(maxNr, spectral::nPEM * 9);
     }
     
+        // expand workspace
+    static void expandWorkspaceBFSM(int maxNr) {
+        int maxNu_1 = maxNr / 2 + 1;
+        
+        sDisplSpherical_CD.resize(maxNr, spectral::nPEM * 3);
+        sBFSMnorm = eigen::RRowX::Zero(1, spectral::nPEM * 9);
+    } 
+
     // workspace
     // Fourier
     inline static eigen::vec_ar3_CMatPP_RM sDisplSpherical_FR;
@@ -167,6 +193,8 @@ private:
     inline static eigen::vec_ar9_CMatPP_RM sStressSpherical_FR;
     inline static eigen::vec_ar3_CMatPP_RM sStiffSpherical_FR;
     // cardinal
+    inline static eigen::RMatXN3 sDisplSpherical_CD =
+    eigen::RMatXN3(0, spectral::nPEM * 3);
     inline static eigen::RMatXN9 sStrainSpherical_CD =
     eigen::RMatXN9(0, spectral::nPEM * 9);
     inline static eigen::RMatXN6 sStrainUndulated_CD =
@@ -175,6 +203,15 @@ private:
     eigen::RMatXN6(0, spectral::nPEM * 6);
     inline static eigen::RMatXN9 sStressSpherical_CD =
     eigen::RMatXN9(0, spectral::nPEM * 9);
+    
+    inline static eigen::RRowX sBFSMnorm;
+    inline static eigen::ar9_RMatPP_RM sBFSMnorm_PP;
+    const inline static eigen::ar9_RMatPP_RM sBFSMnorm_zero = {eigen::RMatPP_RM::Zero(), eigen::RMatPP_RM::Zero(), eigen::RMatPP_RM::Zero(),
+                                                               eigen::RMatPP_RM::Zero(), eigen::RMatPP_RM::Zero(), eigen::RMatPP_RM::Zero(),
+                                                               eigen::RMatPP_RM::Zero(), eigen::RMatPP_RM::Zero(), eigen::RMatPP_RM::Zero()};
+                                                               
+    bool mPrepared = false;
+    int mNrPrepped = -1;
 };
 
 #endif /* SolidElement_hpp */

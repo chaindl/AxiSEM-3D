@@ -15,7 +15,7 @@
 #define GradientQuadrature_hpp
 
 #include "eigen_element.hpp"
-
+#include <iostream>
 // differential operators scaled by integral factor
 #ifdef _SAVE_MEMORY
 // computed on the fly as static variables
@@ -50,7 +50,8 @@ class GradientQuadrature {
     typedef std::vector<std::array<CMatPP_RM, 3>> vec_ar3_CMatPP_RM;
     typedef std::vector<std::array<CMatPP_RM, 6>> vec_ar6_CMatPP_RM;
     typedef std::vector<std::array<CMatPP_RM, 9>> vec_ar9_CMatPP_RM;
-    
+    typedef std::array<RMatPP_RM, 3> ar3_RMatPP_RM;
+    typedef std::array<RMatPP_RM, 9> ar9_RMatPP_RM;
     
     /////////////////////////// data ///////////////////////////
     // operators
@@ -170,15 +171,15 @@ public:
     
     // grad 1 -> 3
     void computeGrad3(const vec_ar1_CMatPP_RM &p, vec_ar3_CMatPP_RM &p_i,
-                      int nu_1) const {
+                      const ar3_RMatPP_RM &BFSMnorm, int nu_1) const {
         ////// higher-order terms //////
         computeGrad_dSdZ(nu_1, p, 0, p_i, 0, 2);
         
         ////// lower-order terms //////
         // i * alpha * p
         for (int alpha = 0; alpha < nu_1; alpha++) {
-            cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = mWinFrac * alpha_I * p[alpha][0];
+            cmplxT alpha_I = (floatT)alpha * I * mWinFrac;
+            sA[alpha][0] = alpha_I * p[alpha][0] + BFSMnorm[0];
         }
         computeGrad_1overS_setTo(nu_1, sA, 0, p_i, 1);
     }
@@ -188,7 +189,7 @@ public:
     // 10->3 11->4 12->5
     // 20->6 21->7 22->8
     void computeGrad9(const vec_ar3_CMatPP_RM &ui, vec_ar9_CMatPP_RM &ui_j,
-                      int nu_1) const {
+                      const ar9_RMatPP_RM &BFSMnorm, int nu_1) const {
         ////// higher-order terms //////
         computeGrad_dSdZ(nu_1, ui, 0, ui_j, 0, 2);
         computeGrad_dSdZ(nu_1, ui, 1, ui_j, 3, 5);
@@ -199,10 +200,10 @@ public:
         // i * alpha * u1 + u0 -> 4
         // i * alpha * u2 -> 7
         for (int alpha = 0; alpha < nu_1; alpha++) {
-            cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = mWinFrac * alpha_I * ui[alpha][0] - ui[alpha][1];
-            sA[alpha][1] = mWinFrac * alpha_I * ui[alpha][1] + ui[alpha][0];
-            sA[alpha][2] = mWinFrac * alpha_I * ui[alpha][2];
+            cmplxT alpha_I = (floatT)alpha * I * mWinFrac;
+            sA[alpha][0] = alpha_I * ui[alpha][0] - ui[alpha][1] + BFSMnorm[0];
+            sA[alpha][1] = alpha_I * ui[alpha][1] + ui[alpha][0] + BFSMnorm[1];
+            sA[alpha][2] = alpha_I * ui[alpha][2] + BFSMnorm[2];
         }
         computeGrad_1overS_setTo(nu_1, sA, 0, ui_j, 1);
         computeGrad_1overS_setTo(nu_1, sA, 1, ui_j, 4);
@@ -214,7 +215,7 @@ public:
     // 10->5 11->1 12->3
     // 20->4 21->3 22->2
     void computeGrad6(const vec_ar3_CMatPP_RM &ui, vec_ar6_CMatPP_RM &eij,
-                      int nu_1) const {
+                      const ar9_RMatPP_RM &BFSMnorm, int nu_1) const {
         ////// higher-order terms //////
         computeGrad_dSdZ(nu_1, ui, 0, eij, 0, 4);
         computeGrad_dSdZ(nu_1, ui, 1, eij, 5, 3);
@@ -229,10 +230,10 @@ public:
         // i * alpha * u1 + u0 -> 1
         // i * alpha * u2 -> 3
         for (int alpha = 0; alpha < nu_1; alpha++) {
-            cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = mWinFrac * alpha_I * ui[alpha][0] - ui[alpha][1];
-            sA[alpha][1] = mWinFrac * alpha_I * ui[alpha][1] + ui[alpha][0];
-            sA[alpha][2] = mWinFrac * alpha_I * ui[alpha][2];
+            cmplxT alpha_I = (floatT)alpha * I * mWinFrac;
+            sA[alpha][0] = alpha_I * ui[alpha][0] - ui[alpha][1] + BFSMnorm[0];
+            sA[alpha][1] = alpha_I * ui[alpha][1] + ui[alpha][0] + BFSMnorm[1];
+            sA[alpha][2] = alpha_I * ui[alpha][2] + BFSMnorm[2];
         }
         computeGrad_1overS_addTo(nu_1, sA, 0, eij, 5);
         computeGrad_1overS_setTo(nu_1, sA, 1, eij, 1);
@@ -241,7 +242,7 @@ public:
     
     // quad 3 -> 1
     void computeQuad3(const vec_ar3_CMatPP_RM &q_i, vec_ar1_CMatPP_RM &q,
-                      int nu_1) const {
+                      const ar3_RMatPP_RM &BFSMnorm, int nu_1) const {
 #ifdef _SAVE_MEMORY
         // compute scaled operators
         computeScaledOperators();
@@ -253,8 +254,8 @@ public:
         ////// lower-order terms //////
         // i * alpha * q1
         for (int alpha = 0; alpha < nu_1; alpha++) {
-            cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = mWinFrac * alpha_I * q_i[alpha][1];
+            cmplxT alpha_I = (floatT)alpha * I * mWinFrac;
+            sA[alpha][0] = alpha_I * q_i[alpha][1] + BFSMnorm[1];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, q, 0,
                                  x1overS_IF, xDzDxii_IF, xDzDeta_IF);
@@ -265,7 +266,7 @@ public:
     // 10->3 11->4 12->5
     // 20->6 21->7 22->8
     void computeQuad9(const vec_ar9_CMatPP_RM &fi_j, vec_ar3_CMatPP_RM &fi,
-                      int nu_1) const {
+                      const ar9_RMatPP_RM &BFSMnorm, int nu_1) const {
 #ifdef _SAVE_MEMORY
         // compute scaled operators
         computeScaledOperators();
@@ -283,10 +284,10 @@ public:
         // i * alpha * df4 + df1 -> 1
         // i * alpha * df7 -> 2
         for (int alpha = 0; alpha < nu_1; alpha++) {
-            cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = mWinFrac * alpha_I * fi_j[alpha][1] - fi_j[alpha][4];
-            sA[alpha][1] = mWinFrac * alpha_I * fi_j[alpha][4] + fi_j[alpha][1];
-            sA[alpha][2] = mWinFrac * alpha_I * fi_j[alpha][7];
+            cmplxT alpha_I = (floatT)alpha * I * mWinFrac;
+            sA[alpha][0] = alpha_I * fi_j[alpha][1] - fi_j[alpha][4] + BFSMnorm[1];
+            sA[alpha][1] = alpha_I * fi_j[alpha][4] + fi_j[alpha][1] + BFSMnorm[4];
+            sA[alpha][2] = alpha_I * fi_j[alpha][7] + BFSMnorm[7];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, fi, 0,
                                  x1overS_IF, xDzDxii_IF, xDzDeta_IF);
@@ -301,7 +302,7 @@ public:
     // 10->5 11->1 12->3
     // 20->4 21->3 22->2
     void computeQuad6(const vec_ar6_CMatPP_RM &sij, vec_ar3_CMatPP_RM &fi,
-                      int nu_1) const {
+                      const ar9_RMatPP_RM &BFSMnorm, int nu_1) const {
 #ifdef _SAVE_MEMORY
         // compute scaled operators
         computeScaledOperators();
@@ -319,10 +320,10 @@ public:
         // i * alpha * df1 + df5 -> 1
         // i * alpha * df3 -> 2
         for (int alpha = 0; alpha < nu_1; alpha++) {
-            cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = mWinFrac * alpha_I * sij[alpha][5] - sij[alpha][1];
-            sA[alpha][1] = mWinFrac * alpha_I * sij[alpha][1] + sij[alpha][5];
-            sA[alpha][2] = mWinFrac * alpha_I * sij[alpha][3];
+            cmplxT alpha_I = (floatT)alpha * I * mWinFrac;
+            sA[alpha][0] = alpha_I * sij[alpha][5] - sij[alpha][1] + BFSMnorm[5];
+            sA[alpha][1] = alpha_I * sij[alpha][1] + sij[alpha][5] + BFSMnorm[1];
+            sA[alpha][2] = alpha_I * sij[alpha][3] + BFSMnorm[3];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, fi, 0,
                                  x1overS_IF, xDzDxii_IF, xDzDeta_IF);
@@ -338,7 +339,7 @@ public:
     // 20->6 21->7 22->8
     void computeQuad9_NoIntegration(const vec_ar9_CMatPP_RM &fi_j,
                                     vec_ar3_CMatPP_RM &fi,
-                                    int nu_1) const {
+                                    const ar9_RMatPP_RM &BFSMnorm, int nu_1) const {
         ////// higher-order terms //////
         computeQuad_dSdZ(nu_1, fi_j, 0, 2, fi, 0,
                          mDsDxii, mDsDeta, mDzDxii, mDzDeta);
@@ -352,10 +353,10 @@ public:
         // i * alpha * df4 + df1 -> 1
         // i * alpha * df7 -> 2
         for (int alpha = 0; alpha < nu_1; alpha++) {
-            cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = mWinFrac * alpha_I * fi_j[alpha][1] - fi_j[alpha][4];
-            sA[alpha][1] = mWinFrac * alpha_I * fi_j[alpha][4] + fi_j[alpha][1];
-            sA[alpha][2] = mWinFrac * alpha_I * fi_j[alpha][7];
+            cmplxT alpha_I = (floatT)alpha * I * mWinFrac;
+            sA[alpha][0] = alpha_I * fi_j[alpha][1] - fi_j[alpha][4] + BFSMnorm[1];
+            sA[alpha][1] = alpha_I * fi_j[alpha][4] + fi_j[alpha][1] + BFSMnorm[4];
+            sA[alpha][2] = alpha_I * fi_j[alpha][7] + BFSMnorm[7];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, fi, 0,
                                  m1overS, mDzDxii, mDzDeta);
@@ -371,7 +372,7 @@ public:
     // 20->4 21->3 22->2
     void computeQuad6_NoIntegration(const vec_ar6_CMatPP_RM &sij,
                                     vec_ar3_CMatPP_RM &fi,
-                                    int nu_1) const {
+                                    const ar9_RMatPP_RM &BFSMnorm, int nu_1) const {
         ////// higher-order terms //////
         computeQuad_dSdZ(nu_1, sij, 0, 4, fi, 0,
                          mDsDxii, mDsDeta, mDzDxii, mDzDeta);
@@ -385,10 +386,10 @@ public:
         // i * alpha * df1 + df5 -> 1
         // i * alpha * df3 -> 2
         for (int alpha = 0; alpha < nu_1; alpha++) {
-            cmplxT alpha_I = (floatT)alpha * I;
-            sA[alpha][0] = mWinFrac * alpha_I * sij[alpha][5] - sij[alpha][1];
-            sA[alpha][1] = mWinFrac * alpha_I * sij[alpha][1] + sij[alpha][5];
-            sA[alpha][2] = mWinFrac * alpha_I * sij[alpha][3];
+            cmplxT alpha_I = (floatT)alpha * I * mWinFrac;
+            sA[alpha][0] = alpha_I * sij[alpha][5] - sij[alpha][1] + BFSMnorm[5];
+            sA[alpha][1] = alpha_I * sij[alpha][1] + sij[alpha][5] + BFSMnorm[1];
+            sA[alpha][2] = alpha_I * sij[alpha][3] + BFSMnorm[3];
         }
         computeQuad_1overS_addTo(nu_1, sA, 0, fi, 0,
                                  m1overS, mDzDxii, mDzDeta);

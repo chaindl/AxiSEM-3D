@@ -21,6 +21,8 @@ namespace eigen {
     using spectral::nPEM;
     using spectral::nPED;
     
+    typedef Eigen::Matrix<int, Eigen::Dynamic, 2> IMatX2;
+    
     /////////////// Fourier space ///////////////
     // wavefields
     typedef Eigen::Matrix<ComplexR, nPED, nPED, Eigen::RowMajor> CMatPP_RM;
@@ -48,6 +50,10 @@ namespace eigen {
     
     // properties
     typedef Eigen::Matrix<double, Eigen::Dynamic, nPEM> DMatXN;
+    
+    // BFSM buffer
+    typedef std::array<RMatPP_RM, 3> ar3_RMatPP_RM;
+    typedef std::array<RMatPP_RM, 9> ar9_RMatPP_RM;
 }
 
 #endif /* eigen_element_hpp */

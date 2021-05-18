@@ -32,6 +32,8 @@ public:
     // destructor
     virtual ~ClaytonFluid() = default;
     
+    virtual void checkCompatibility() const {};
+    
     // apply ABC
     virtual void apply() const = 0;
     

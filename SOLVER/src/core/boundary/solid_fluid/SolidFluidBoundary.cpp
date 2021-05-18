@@ -12,9 +12,10 @@
 
 // domain
 #include "Messaging.hpp"
-#include "SolidPointWindow.hpp"
 #include "bstring.hpp"
 #include "vector_tools.hpp"
+
+class PointWindow;
 
 // count info
 std::map<std::string, int> SolidFluidBoundary::

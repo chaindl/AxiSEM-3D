@@ -16,8 +16,8 @@
 class SolidFluidCoupling1D: public SolidFluidCoupling {
 public:
     // constructor
-    SolidFluidCoupling1D(const std::shared_ptr<SolidPointWindow> &spw,
-                         const std::shared_ptr<FluidPointWindow> &fpw,
+    SolidFluidCoupling1D(const std::shared_ptr<PointWindow> &spw,
+                         const std::shared_ptr<PointWindow> &fpw,
                          double ns_unassmb, double nz_unassmb,
                          double ns_assmb, double nz_assmb,
                          double massFluid);
@@ -29,9 +29,21 @@ public:
         fluidStiff += mNormalZ_UnassembledMPI * solidDispl.col(2);
     }
     
+    void coupleSolidToFluid(const eigen::RMatX3 &solidDispl,
+                            eigen::RColX &fluidStiff) const {
+        fluidStiff += mNormalS_UnassembledMPI * solidDispl.col(0);
+        fluidStiff += mNormalZ_UnassembledMPI * solidDispl.col(2);
+    }
+    
     // fluid => solid
     void coupleFluidToSolid(const eigen::CColX &fluidStiff,
                             eigen::CMatX3 &solidStiff) const {
+        solidStiff.col(0) -= mNormalS_AssembledMPI_InvMassFluid * fluidStiff;
+        solidStiff.col(2) -= mNormalZ_AssembledMPI_InvMassFluid * fluidStiff;
+    }
+    
+    void coupleFluidToSolid(const eigen::RColX &fluidStiff,
+                            eigen::RMatX3 &solidStiff) const {
         solidStiff.col(0) -= mNormalS_AssembledMPI_InvMassFluid * fluidStiff;
         solidStiff.col(2) -= mNormalZ_AssembledMPI_InvMassFluid * fluidStiff;
     }

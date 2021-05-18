@@ -155,11 +155,21 @@ void SymplecticTimeScheme::launch(const std::vector<std::shared_ptr<Point>> &poi
     for (const std::shared_ptr<Point> &point: points) {
         for (const std::shared_ptr<PointWindow> &pw: point->getWindows()) {
             if (pw->isFluid()) {
-                auto &f = pw->getFluidFields();
-                f.mDispl += kappa_dt * f.mVeloc;
+                if (pw->storesFieldsInFourier()) {
+                    auto &f = pw->getFluidFieldsC();
+                    f.mDispl += kappa_dt * f.mVeloc;
+                } else {
+                    auto &f = pw->getFluidFieldsR();
+                    f.mDispl += kappa_dt * f.mVeloc;
+                }
             } else {
-                auto &f = pw->getSolidFields();
-                f.mDispl += kappa_dt * f.mVeloc;
+                if (pw->storesFieldsInFourier()) {
+                    auto &f = pw->getSolidFieldsC();
+                    f.mDispl += kappa_dt * f.mVeloc;
+                } else {
+                    auto &f = pw->getSolidFieldsR();
+                    f.mDispl += kappa_dt * f.mVeloc;
+                }
             }
         }
     }
@@ -173,9 +183,17 @@ void SymplecticTimeScheme::update(const std::vector<std::shared_ptr<Point>> &poi
     for (const std::shared_ptr<Point> &point: points) {
         for (const std::shared_ptr<PointWindow> &pw: point->getWindows()) {
             if (pw->isFluid()) {
-                update(pw->getFluidFields(), pi_dt, kappa_dt);
+                if (pw->storesFieldsInFourier()) {
+                    update(pw->getFluidFieldsC(), pi_dt, kappa_dt);
+                } else {
+                    update(pw->getFluidFieldsR(), pi_dt, kappa_dt);
+                }    
             } else {
-                update(pw->getSolidFields(), pi_dt, kappa_dt);
+                if (pw->storesFieldsInFourier()) {
+                    update(pw->getSolidFieldsC(), pi_dt, kappa_dt);
+                } else {
+                    update(pw->getSolidFieldsR(), pi_dt, kappa_dt);
+                } 
             }
         }
     }

@@ -32,24 +32,31 @@ public:
     mRSA(rhoVs.cwiseProduct(area).cast<numerical::Real>()),
     mK(((rhoVp - rhoVs).cwiseProduct(area).cwiseSqrt().asDiagonal()
         * unitNormal).cast<numerical::Real>()) {
-        // check compatibility
-        checkCompatibility();
-    }
-    
-private:
-    // check compatibility
-    void checkCompatibility();
+    };
     
 public:
     // apply ABC
-    void apply() const;
+    virtual void apply() const = 0;
+
+    virtual void checkCompatibility() const = 0;
     
-private:
+protected:
     // rsa = rho * vs * area
     const eigen::RColX mRSA;
     // k = sqrt(rpa - rsa) n
     const eigen::RMatX3 mK;
+};
+
+class ClaytonSolid3D_C: public ClaytonSolid3D {
+public:
+    // constructor
+    using ClaytonSolid3D::ClaytonSolid3D;
     
+    // check compatibility
+    void checkCompatibility() const;
+    
+    // apply ABC
+    void apply() const;
     
     ////////////////////////////////////////
     //////////////// static ////////////////
@@ -62,6 +69,26 @@ private:
     // a = rsa V + V.k k
     inline static eigen::RMatX3 sAR = eigen::RMatX3(0, 3);
     inline static eigen::CMatX3 sAC = eigen::CMatX3(0, 3);
+};
+
+class ClaytonSolid3D_R: public ClaytonSolid3D {
+public:
+    // constructor
+    using ClaytonSolid3D::ClaytonSolid3D;
+    
+    // check compatibility
+    void checkCompatibility() const;
+    
+    // apply ABC
+    void apply() const;
+    
+    ////////////////////////////////////////
+    //////////////// static ////////////////
+    ////////////////////////////////////////
+    
+private:
+    // workspace
+    inline static eigen::RMatX3 sAR = eigen::RMatX3(0, 3);
 };
 
 #endif /* ClaytonSolid3D_hpp */

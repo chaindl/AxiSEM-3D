@@ -23,14 +23,16 @@ namespace eigen {
     using spectral::nPED;
     using spectral::nPEM;
     typedef Eigen::Matrix<ComplexD, nPED, nPED, Eigen::RowMajor> ZMatPP_RM;
+    typedef Eigen::Matrix<double, nPED, nPED, Eigen::RowMajor> DMatPP_RM;
     typedef std::vector<std::array<ZMatPP_RM, 1>> vec_ar1_ZMatPP_RM;
     typedef std::vector<std::array<ZMatPP_RM, 3>> vec_ar3_ZMatPP_RM;
     typedef Eigen::Matrix<double, Eigen::Dynamic, nPEM * 3> DMatXN3;
+    typedef std::array<DMatPP_RM, 3> ar3_DMatPP_RM;
 }
 
 // release
 #include "PRT.hpp"
-
+#include "WindowInterpolator.hpp"
 class Undulation {
 public:
     // add undulation
@@ -49,10 +51,10 @@ public:
     }
     
     // finishing 3D properties
-    void finishing3D() const;
+    void finishing3D(bool needBuffer, WindowInterpolator<double> &bufferer);
     
     // finished 3D properties
-    void finished3D(const Quad &myQuad, double winFrac);
+    void finished3D(const Quad &myQuad, double winFrac, WindowInterpolator<double> &bufferer);
     
     // get Jacobian for mass
     eigen::arN_DColX getMassJacobian(const eigen::DMat2N &sz) const;
@@ -72,7 +74,7 @@ private:
     
     // gradient of delta Z
     eigen::DMatXN3 mDeltaZ_RTZ;
-    
+    int mFTBufferSplineTag;
     
     ///////////////////////// static /////////////////////////
 public:

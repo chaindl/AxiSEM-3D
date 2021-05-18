@@ -14,7 +14,7 @@
 
 #include "eigen.hpp"
 #include "spectral.hpp"
-
+#include <iostream>
 namespace mapPPvsN {
     using spectral::nPEM;
     
@@ -41,6 +41,16 @@ namespace mapPPvsN {
                 Eigen::Map<RowN>(outPP[alpha][idim].data()) =
                 inN.block(alpha, idim * nPEM, 1, nPEM);
             }
+        }
+    }
+    
+    // N -> PP for BFSM buffer
+    template <typename arD_MatPP_RM, typename RowND,
+    typename RowN = Eigen::Matrix<typename RowND::Scalar, 1, nPEM>>
+    void N2PP_buf(const RowND &inN, arD_MatPP_RM &outPP, int dim) {
+        for (int idim = 0; idim < dim; idim++) {
+            Eigen::Map<RowN>(outPP[idim].data()) =
+            inN.block(0, idim * nPEM, 1, nPEM);
         }
     }
 }

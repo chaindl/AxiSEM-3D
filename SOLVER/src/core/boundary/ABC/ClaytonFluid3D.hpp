@@ -21,22 +21,29 @@ public:
                    const eigen::DColX &rhoVp, const eigen::DColX &area):
     ClaytonFluid(fpw),
     mAreaOverRhoVp(area.cwiseQuotient(rhoVp).cast<numerical::Real>()) {
-        // check compatibility
-        checkCompatibility();
-    }
-    
-private:
-    // check compatibility
-    void checkCompatibility();
+    };
     
 public:
-    // apply ABC
-    void apply() const;
+  // check compatibility
+    virtual void checkCompatibility() const = 0;
     
-private:
+    // apply ABC
+    virtual void apply() const = 0;
+    
+protected:
     // area / (rho * vp)
     const eigen::RColX mAreaOverRhoVp;
     
+};
+
+class ClaytonFluid3D_C: public ClaytonFluid3D {
+public:
+    // constructor
+    using ClaytonFluid3D::ClaytonFluid3D;
+    // apply ABC
+    void apply() const;
+    
+    void checkCompatibility() const;
     
     ////////////////////////////////////////
     //////////////// static ////////////////
@@ -45,6 +52,16 @@ private:
     // workspace
     inline static eigen::RColX sVecR = eigen::RColX(0);
     inline static eigen::CColX sVecC = eigen::CColX(0);
+};
+
+class ClaytonFluid3D_R: public ClaytonFluid3D {
+public:
+    // constructor
+    using ClaytonFluid3D::ClaytonFluid3D;
+    // apply ABC
+    void apply() const;
+    
+    void checkCompatibility() const;    
 };
 
 #endif /* ClaytonFluid3D_hpp */

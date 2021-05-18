@@ -26,7 +26,7 @@ set(CMAKE_CXX_FLAGS             ${flags})
 # additional link options
 set(LINK_OPTIONS                ${links})
 
-
+set(CMAKE_BUILD_TYPE "Debug")
 ################## dependencies ##################
 # preferred installation prefix of dependencies
 set(EIGEN3_ROOT                 ${eigen})

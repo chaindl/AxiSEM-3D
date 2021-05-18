@@ -12,11 +12,11 @@
 #define FluidElementWindow_hpp
 
 #include "ElementWindow.hpp"
+#include "SFRCPointWindow.hpp"
 
 // point
 #include <array>
 class PointWindow;
-class FluidPointWindow;
 
 // material
 #include "Acoustic.hpp"
@@ -24,6 +24,7 @@ class FluidPointWindow;
 // output
 #include "channel.hpp"
 
+template <class FluidPointWindow>
 class FluidElementWindow: public ElementWindow {
 public:
     // constructor
@@ -31,10 +32,23 @@ public:
                        std::unique_ptr<const PRT> &prt,
                        std::unique_ptr<const Acoustic> &acoustic,
                        const std::array<std::shared_ptr<FluidPointWindow>, spectral::nPEM> &pointWindows, 
-                       std::array<eigen::RMatX2, 2> &overlapPhi);
-    
+                       std::array<eigen::RMatX2, 2> &overlapPhi,
+                       std::shared_ptr<WinInt> interpolator):
+    ElementWindow(grad, prt, overlapPhi, interpolator), mAcoustic(acoustic.release()),
+    mInFourier((mPRT ? mPRT->is1D() : true) && mAcoustic->is1D() && !mInterpolator),
+    mPointWindows(pointWindows) {
+        // construct derived
+        constructDerived();
+    };
+        
     // copy constructor
-    FluidElementWindow(const FluidElementWindow &other);
+    FluidElementWindow(const FluidElementWindow &other):
+    ElementWindow(other), mAcoustic(std::make_unique<Acoustic>(*(other.mAcoustic))),
+    mInFourier((mPRT ? mPRT->is1D() : true) && mAcoustic->is1D() && !mInterpolator),
+    mPointWindows(other.mPointWindows) {
+        // construct derived
+        constructDerived();
+    };
     
 private:
     // construct derived
@@ -55,22 +69,24 @@ public:
 private:
     // collect displacement from points (only called internally by displToStrain)
     void collectDisplFromPointWindows(eigen::vec_ar1_CMatPP_RM &displElem) const;
+    void collectDisplFromPointWindows(eigen::RMatXN &displElem) const;
     // scatter stiffness to points (only called internally by stressToStiffness)
-    void addStiffToPointWindows(eigen::vec_ar1_CMatPP_RM &stiffElem) const;
+    void addStiffToPointWindows(const eigen::vec_ar1_CMatPP_RM &stiffElem) const;
+    void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform) const;
+    void strainToStress() const;
+    void transformStressToFourier_noBuffer(const std::shared_ptr<const CoordTransform> &transform) const;
     
 public:
     // displacement to stiffness
     void displToStrain() const;
-    void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform) const;
-    void getStrainForInterp(eigen::RColX &strain, const int side, const int dim) const;
-    void addOverlapToStrain(const eigen::RColX &strain, const int side, const int dim) const;
-    void strainToStress() const;
+    void transformStrainToPhysical(const std::shared_ptr<const CoordTransform> &transform, eigen::RMatXN6 &strain) const;
+    void strainToStress(const eigen::RMatXN6 &strain) const;
     void transformStressToFourier(const std::shared_ptr<const CoordTransform> &transform) const;
-    void stressToStiffness() const;
+    void stressToStiffness(const int tag) const;
     
     // for measuring cost
-    void randomPointWindowsDispl() const;
-    void resetPointWindowsToZero() const;
+    void randomPointWindowsDispl();
+    void resetPointWindowsToZero();
   
     /////////////////////////// source ///////////////////////////
     
@@ -125,6 +141,14 @@ private:
         sStressSpherical_CD.resize(maxNr, spectral::nPEM * 3);
     }
     
+    // expand workspace
+    static void expandWorkspaceBFSM(int maxNr) {
+        int maxNu_1 = maxNr / 2 + 1;
+        
+        sDisplSpherical_CD.resize(maxNr, spectral::nPEM * 3);
+        sBFSMnorm = eigen::RRowX::Zero(1, spectral::nPEM * 3);
+    }    
+    
     // workspace
     // Fourier
     inline static eigen::vec_ar1_CMatPP_RM sDisplSpherical_FR;
@@ -134,6 +158,8 @@ private:
     inline static eigen::vec_ar3_CMatPP_RM sStressSpherical_FR;
     inline static eigen::vec_ar1_CMatPP_RM sStiffSpherical_FR;
     // cardinal
+    inline static eigen::RMatXN sDisplSpherical_CD =
+    eigen::RMatXN(0, spectral::nPEM);
     inline static eigen::RMatXN3 sStrainSpherical_CD =
     eigen::RMatXN3(0, spectral::nPEM * 3);
     inline static eigen::RMatXN3 sStrainUndulated_CD =
@@ -142,6 +168,12 @@ private:
     eigen::RMatXN3(0, spectral::nPEM * 3);
     inline static eigen::RMatXN3 sStressSpherical_CD =
     eigen::RMatXN3(0, spectral::nPEM * 3);
+    
+    inline static eigen::RRowX sBFSMnorm;
+    inline static eigen::ar3_RMatPP_RM sBFSMnorm_PP;
+    const inline static eigen::ar3_RMatPP_RM sBFSMnorm_zero = {eigen::RMatPP_RM::Zero(), eigen::RMatPP_RM::Zero(), eigen::RMatPP_RM::Zero()};
 };
+
+
 
 #endif /* FluidElement_hpp */

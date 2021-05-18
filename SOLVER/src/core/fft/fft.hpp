@@ -22,6 +22,7 @@ namespace fft {
     // global FFT solvers
     extern SolverFFTW<Real, 1> gFFT_1;
     extern SolverFFTW<Real, 3> gFFT_3;
+    extern SolverFFTW<Real, nPEM * 1> gFFT_N1;
     extern SolverFFTW<Real, nPEM * 3> gFFT_N3;
     extern SolverFFTW<Real, nPEM * 6> gFFT_N6;
     extern SolverFFTW<Real, nPEM * 9> gFFT_N9;

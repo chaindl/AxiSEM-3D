@@ -148,9 +148,17 @@ void NewmarkTimeScheme::update(const std::vector<std::shared_ptr<Point>> &points
     for (const std::shared_ptr<Point> &point: points) {
         for (const std::shared_ptr<PointWindow> &pw: point->getWindows()) {
             if (pw->isFluid()) {
-                update(pw->getFluidFields(), dt, half_dt, half_dt_dt);
+                if (pw->storesFieldsInFourier()) {
+                    update(pw->getFluidFieldsC(), dt, half_dt, half_dt_dt);
+                } else {
+                    update(pw->getFluidFieldsR(), dt, half_dt, half_dt_dt);
+                }
             } else {
-                update(pw->getSolidFields(), dt, half_dt, half_dt_dt);
+                if (pw->storesFieldsInFourier()) {
+                    update(pw->getSolidFieldsC(), dt, half_dt, half_dt_dt);
+                } else {
+                    update(pw->getSolidFieldsR(), dt, half_dt, half_dt_dt);
+                }
             }
         }
     }

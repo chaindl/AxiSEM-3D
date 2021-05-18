@@ -13,18 +13,22 @@
 #include "SolverFFTW.cpp"
 #include "Quad.hpp"
 #include "geodesy.hpp"
+#include "WindowInterpolator.hpp"
+#include "mapPPvsN.hpp"
 
 using spectral::nPEM;
+using interpolation::SplineOrder;
 
 // finishing 3D properties
-void Undulation::finishing3D() const {
+void Undulation::finishing3D(bool needBuffer, WindowInterpolator<double> &bufferer) {
     // no undulation
     if (!mDeltaZ) {
         return;
     }
     
     // initialize static
-    int nr = (int)getElemental().rows();
+    int nr = mDeltaZ.getNr();
+    if (needBuffer) nr += SplineOrder;
     sFFT_N1.addNR(nr);
     sFFT_N3.addNR(nr);
     int nc = nr / 2 + 1;
@@ -32,10 +36,18 @@ void Undulation::finishing3D() const {
         sDeltaZ_Fourier.resize(nc);
         sDeltaZ_SPZ_Fourier.resize(nc);
     }
+    
+    if (needBuffer) {
+        eigen::DColX knots(SplineOrder);
+        knots << eigen::DColX::LinSpaced(SplineOrder / 2, 0., (double)SplineOrder / 2 - 1), 
+                 eigen::DColX::LinSpaced(SplineOrder / 2, 3 * (double)SplineOrder / 2, 4 * (double)SplineOrder / 2 - 1.);
+        knots.array() /= 2 * SplineOrder - 1;
+        mFTBufferSplineTag = bufferer.addSplineFitting(knots, nPEM);
+    }
 }
 
 // finished 3D properties
-void Undulation::finished3D(const Quad &myQuad, double winFrac) {
+void Undulation::finished3D(const Quad &myQuad, double winFrac, WindowInterpolator<double> &bufferer) {
     // no undulation
     if (!mDeltaZ) {
         return;
@@ -43,20 +55,52 @@ void Undulation::finished3D(const Quad &myQuad, double winFrac) {
     
     ////////////////////// compute gradient //////////////////////
     // step 1: FFT
-    const eigen::DMatXN &dz = getElemental();
-    int nr = (int)dz.rows();
-    sFFT_N1.computeR2C(dz, sDeltaZ_Fourier, nr);
+    int nr = mDeltaZ.getNr();
+    int nr_buffered = nr;
+    static eigen::ar3_DMatPP_RM BFSMnorm_PP;
+    BFSMnorm_PP = {eigen::DMatPP_RM::Zero(), eigen::DMatPP_RM::Zero(), eigen::DMatPP_RM::Zero()};
+    
+    if (std::abs(winFrac - 1.) > numerical::dEpsilon) {
+        nr_buffered += SplineOrder;
+
+        const static eigen::DColX query = eigen::DColX::LinSpaced(SplineOrder, 
+            (SplineOrder / 2) / (2 * SplineOrder - 1), 
+            (3 * SplineOrder / 2) / (2 * SplineOrder - 1));
+        
+        eigen::DMatXN dz = eigen::DMatXN::Zero(nr_buffered, nPEM);
+        dz.topRows(nr) = getElemental();
+        
+        eigen::DRowX BFSMnorm = (dz.row(nr - 1).array() - dz.row(0).array()) / (nr - 1);
+        
+        dz.topRows(nr) -= eigen::DColX::LinSpaced(nr, 0, nr - 1) * BFSMnorm;
+        
+        eigen::IColX bufferIdx(SplineOrder);
+        for (int n = 0; n < SplineOrder / 2; n++) {
+            bufferIdx(n) = nr - SplineOrder / 2 + n;
+            bufferIdx(SplineOrder / 2 + n) = n;
+        }
+        
+        bufferer.interpolatePreloop(mFTBufferSplineTag, dz(bufferIdx, 
+            Eigen::all), dz, query, nr, nPEM);
+        
+        mapPPvsN::N2PP_buf(BFSMnorm, BFSMnorm_PP, nPEM);
+        sFFT_N1.computeR2C(dz, sDeltaZ_Fourier, nr_buffered);
+    } else {
+        const eigen::DMatXN &dz = getElemental();
+        sFFT_N1.computeR2C(dz, sDeltaZ_Fourier, nr);
+    }
     
     // step 2: gradient
     static eigen::DMat2N sz;
     static eigen::DMatPP_RM ifPP;
     const auto &grad = myQuad.createGradient<double>(sz, ifPP, winFrac);
-    grad->checkCompatibility(nr);
-    grad->computeGrad3(sDeltaZ_Fourier, sDeltaZ_SPZ_Fourier, nr / 2 + 1);
+    grad->checkCompatibility(nr_buffered);
+    grad->computeGrad3(sDeltaZ_Fourier, sDeltaZ_SPZ_Fourier, BFSMnorm_PP, nr_buffered / 2 + 1);
     
     // step 3: IFFT
-    mDeltaZ_RTZ.resize(nr, nPEM * 3);
-    sFFT_N3.computeC2R(sDeltaZ_SPZ_Fourier, mDeltaZ_RTZ, nr);
+    mDeltaZ_RTZ.resize(nr_buffered, nPEM * 3);
+    sFFT_N3.computeC2R(sDeltaZ_SPZ_Fourier, mDeltaZ_RTZ, nr_buffered);
+    mDeltaZ_RTZ = mDeltaZ_RTZ.topRows(nr);
     
     // step 4: rotate
     if (!geodesy::isCartesian()) {

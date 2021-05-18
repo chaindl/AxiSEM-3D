@@ -7,10 +7,3 @@
 //
 
 //  GLL point
-
-#include "PointWindow.hpp"
-#include "Point.hpp"
-
-int PointWindow::getMeshTag() const {
-    return mPoint.lock()->getMeshTag();
-}

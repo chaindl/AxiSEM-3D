@@ -16,9 +16,6 @@
 #include "ClaytonFluid.hpp"
 
 #include "Sponge.hpp"
-typedef Sponge<3> SpongeSolid;
-typedef Sponge<1> SpongeFluid;
-
 // domain
 #include <map>
 class Messaging;
@@ -27,21 +24,23 @@ class AbsorbingBoundary {
 public:
     // add Clayton in solid
     void addClaytonSolid(std::unique_ptr<const ClaytonSolid> &clayton) {
+        clayton->checkCompatibility();
         mClaytonSolids.push_back(std::move(clayton));
     }
     
     // add Clayton in fluid
     void addClaytonFluid(std::unique_ptr<const ClaytonFluid> &clayton) {
+        clayton->checkCompatibility();
         mClaytonFluids.push_back(std::move(clayton));
     }
     
     // add sponge in solid
-    void addSpongeSolid(std::unique_ptr<const SpongeSolid> &sponge) {
+    void addSpongeSolid(std::unique_ptr<const Sponge<3>> &sponge) {
         mSpongeSolids.push_back(std::move(sponge));
     }
     
     // add sponge in fluid
-    void addSpongeFluid(std::unique_ptr<const SpongeFluid> &sponge) {
+    void addSpongeFluid(std::unique_ptr<const Sponge<1>> &sponge) {
         mSpongeFluids.push_back(std::move(sponge));
     }
     
@@ -74,8 +73,8 @@ private:
     std::vector<std::unique_ptr<const ClaytonFluid>> mClaytonFluids;
     
     // sponges
-    std::vector<std::unique_ptr<const SpongeSolid>> mSpongeSolids;
-    std::vector<std::unique_ptr<const SpongeFluid>> mSpongeFluids;
+    std::vector<std::unique_ptr<const Sponge<3>>> mSpongeSolids;
+    std::vector<std::unique_ptr<const Sponge<1>>> mSpongeFluids;
 };
 
 #endif /* AbsorbingBoundary_hpp */

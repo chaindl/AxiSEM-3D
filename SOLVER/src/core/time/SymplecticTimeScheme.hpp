@@ -14,7 +14,6 @@
 #include "TimeScheme.hpp"
 #include "numerical.hpp"
 #include <vector>
-#include <memory>
 
 class Point;
 
@@ -29,17 +28,17 @@ public:
     // solve
     void solve() const;
     
-    
     //////////////////// point ////////////////////
     // create fields on a point
     template <typename Fields>
-    static void createFields(Fields &f, int nu_1, int nr) {
+    static void createFields(Fields &f, int nu_1, int nr, int n_displ) {
         int ndim = (int)f.mStiff.cols();
         f.mStiff.resize(nu_1, ndim);
         f.mStiffR.resize(nr, ndim);
-        f.mDispl.resize(nu_1, ndim);
-        f.mVeloc.resize(nu_1, ndim);
+        f.mDispl.resize(n_displ, ndim);
+        f.mVeloc.resize(n_displ, ndim);
         f.mStiff.setZero();
+        f.mStiffR.setZero();
         f.mDispl.setZero();
         f.mVeloc.setZero();
     }
@@ -49,11 +48,11 @@ public:
     static void update(Fields &f,
                        numerical::Real pi_dt, numerical::Real kappa_dt) {
         // update dt
-        f.mVeloc += pi_dt * f.mStiff;
+        f.mVeloc += pi_dt * f.mStiffUpdate;
         f.mDispl += kappa_dt * f.mVeloc;
         
         // zero stiffness for next time step
-        f.mStiff.setZero();
+        f.mStiffUpdate.setZero();
     }
     
 private:

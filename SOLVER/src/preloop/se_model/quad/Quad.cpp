@@ -85,8 +85,8 @@ mFluid1D(localMesh.mIsElementFluid(localTag)) {
     std::pair<eigen::DMatX2, eigen::IMatX4> nodalNrCombined = nrField.makeElementalNrWindows(nodalNr, nodalSZ.row(0).mean());
     
     for (int m = 0; m < nodalNrCombined.first.rows(); m++) {
-        int m_prev = (m == 0) ? nodalNrCombined.first.rows() - 1 : m - 1;
-        int m_next = (m == nodalNrCombined.first.rows() - 1) ? 0 : m + 1;
+        int m_prev = window_tools::prevWin(m, nodalNrCombined.first.rows());
+        int m_next = window_tools::nextWin(m, nodalNrCombined.first.rows());
         // interpolate pointwise nr from nodal nr
         eigen::DRow4 nodalWinNr = nodalNrCombined.second.row(m).cast<double>();
         eigen::IRowN interpPointNr = spectrals::interpolateGLL(nodalWinNr, axial()).array().round().cast<int>();
@@ -95,7 +95,16 @@ mFluid1D(localMesh.mIsElementFluid(localTag)) {
             nodalNrCombined.first.row(m), interpPointNr, 
             nodalNrCombined.first(m_prev, 1), 
             nodalNrCombined.first(m_next, 0), 
-            nodalSZ.row(0).mean());
+            nodalSZ.row(0).mean(), nodalSZ.maxCoeff() == geodesy::getOuterRadius());
+    }
+    
+    // can't have varying nr for points with physical storage
+    // TODO: incorporate this in finaliseNrWindows() to save cost
+    if (getM() > 1) {
+        for (int m = 0; m < getM(); m++) {
+            int maxNr = std::get<1>(*mWindows[m]).maxCoeff();
+            std::get<1>(*mWindows[m]) = eigen::IRowN::Constant(1, spectral::nPEM, maxNr);
+        }
     }
     
     mMaterial.reserve(getM());
@@ -110,9 +119,9 @@ mFluid1D(localMesh.mIsElementFluid(localTag)) {
         mUndulation.push_back(std::make_unique<Undulation>());
         // 4) ocean load
         mOceanLoad.push_back(std::make_unique<OceanLoad>());
-   }
+    }
    
-   mFluid3D.resize(getM(), mFluid1D); // placeholder for implementing discontinuous fluids
+    mFluid3D.resize(getM(), mFluid1D); // placeholder for implementing discontinuous fluids
 }
 
 // setup GLL
@@ -140,16 +149,25 @@ void Quad::setupGLL(const ABC &abc, const LocalMesh &localMesh,
         for (int m = 0; m < getM(); m++) {
             wins_GLL[m] = eigen::DMatX2::Zero(std::get<1>(*mWindows[m])(ipnt) , 2);
             eigen::DColX phi = computeWindowPhi(m, ipnt, true);
-            wins_GLL[m].col(1) = computeWindowFraction(phi, m, false);
+            wins_GLL[m].col(1) = computeWindowFunction(phi, m, false);
             window_tools::wrapPhi(phi);
             wins_GLL[m].col(0) = phi;
+        //     if (mEdgesOnBoundary.at("TOP") != -1) {
+        //         std::vector<int> ipnts_edge = vicinity::constants::gEdgeIPnt[mEdgesOnBoundary.at("TOP")];
+        //         for (int &ie: ipnts_edge) {
+        //             if (ie != ipnt) continue;
+        //             for (int alpha = 0; alpha < wins_GLL[m].rows(); alpha++) {
+        //                 std::cout << sz(0, ipnt) << " " << wins_GLL[m](alpha, 0) / numerical::dDegree << " " << m << " " << wins_GLL[m](alpha, 1) << std::endl;
+        //             }
+        //         }
+        //     }
         }
-        winTags.col(ipnt) = GLLPoints[igll].addWindows(wins_GLL);
+        winTags.col(ipnt) = GLLPoints[igll].addWindows(wins_GLL, getM() == 1);
     }
     for (int m = 0; m < getM(); m++) {
         std::get<2>(*mWindows[m]) = winTags.row(m);
     }
-   
+    
     // add mass
     for (int m = 0; m < getM(); m++) {
         const eigen::arN_DColX &J_PRT = mUndulation[m]->getMassJacobian(sz);
@@ -433,8 +451,9 @@ double Quad::computeDt(double courant, const ABC &abc) const {
 void Quad::release(const LocalMesh &localMesh,
                    const std::vector<GLLPoint> &GLLPoints,
                    const std::unique_ptr<const AttBuilder> &attBuilder,
+                   const std::shared_ptr<WindowInterpolator<numerical::Real>> &interpolator,
                    Domain &domain) {
-    // gradient-quadrature operator
+
     static eigen::DMat2N sz;
     static eigen::DMatPP_RM ifPP;
     
@@ -444,68 +463,158 @@ void Quad::release(const LocalMesh &localMesh,
         points[ipnt] = GLLPoints[igll].getPoint();
     }
     
-    std::vector<std::unique_ptr<ElementWindow>> eleWins;
     double tol = 2 * numerical::dPi * numerical::dEpsilon / getM();
+    
+    // prepare overlap comms and 
+    // construct splines if needed
+    std::vector<eigen::ICol2> nr_ol(getM());
+    std::vector<eigen::DCol2> width_interp(getM());
+    std::vector<eigen::DCol2> phi1_interp(getM());
+    eigen::IMatX2 interpTags = eigen::IMatX2::Constant(getM(), 2, -1);
+    if (getM() > 1) {
+        for (int m = 0 ; m < getM(); m++) {
+            nr_ol[m] = eigen::ICol2::Zero(2, 1);
+            int m_prev = window_tools::prevWin(m, getM());
+            int m_next = window_tools::nextWin(m, getM());
+          
+            eigen::DRow4 shape = window_tools::unwrapPhi(std::get<0>(*mWindows[m]), tol);
+            
+            eigen::DColX winPhi = eigen::DColX::LinSpaced(std::get<1>(*mWindows[m]).maxCoeff(), shape(0), shape(3));
+            double dphi_win = winPhi(1) - winPhi(0);
+            
+            // handle left overlap
+            if (std::get<3>(*mWindows[m_prev])) {
+                eigen::DRow4 shape_prev = window_tools::unwrapPhi(std::get<0>(*mWindows[m_prev]), tol);
+                double dphi_prev_win = (shape_prev(3) - shape_prev(0)) / (std::get<1>(*mWindows[m_prev]).maxCoeff() - 1);
+                
+                while (winPhi(nr_ol[m](0)) < shape(1) - tol) nr_ol[m](0)++;
+                bool aligned = (std::abs(winPhi(nr_ol[m](0)) - shape(1)) < tol) 
+                               && (std::abs(dphi_prev_win - dphi_win) < tol);
+                
+                if (!aligned) {
+                    phi1_interp[m](0) = window_tools::setBounds2Pi(winPhi(0));
+                    width_interp[m](0) = winPhi(nr_ol[m](0) + interpolation::NrExtend - 1) - winPhi(0);
+                    interpTags(m, 0) = interpolator->addSplineFitting(eigen::RColX::LinSpaced(nr_ol[m](0) + interpolation::NrExtend, 0., 1.), 0);
+                }
+            }
+            
+            // handle right overlap
+            if (std::get<3>(*mWindows[m])) {
+                eigen::DRow4 shape_next = window_tools::unwrapPhi(std::get<0>(*mWindows[m_next]), tol);
+                double dphi_next_win = (shape_next(3) - shape_next(0)) / (std::get<1>(*mWindows[m_next]).maxCoeff() - 1);
+                
+                while ((winPhi(winPhi.rows() - nr_ol[m](1) - 1) > shape(2) + tol)) nr_ol[m](1)++;
+                bool aligned = (std::abs(winPhi(winPhi.rows() - nr_ol[m](1) - 1) - shape(2)) < tol) 
+                               && (std::abs(dphi_next_win - dphi_win) < tol);
+                
+
+                if (!aligned) {
+                    phi1_interp[m](1) = window_tools::setBounds2Pi(winPhi(winPhi.rows() - nr_ol[m](1) - interpolation::NrExtend - 1));
+                    width_interp[m](1) = shape(3) - winPhi(winPhi.rows() - nr_ol[m](1) - interpolation::NrExtend - 1);
+                    interpTags(m, 1) = interpolator->addSplineFitting(eigen::RColX::LinSpaced(nr_ol[m](1) + interpolation::NrExtend, 0., 1.), 0);
+                }
+            }
+        }
+    }
+  
+    std::vector<std::unique_ptr<ElementWindow>> eleWins;
     for (int m = 0 ; m < getM(); m++) {
-        eigen::DRow4 shape = std::get<0>(*mWindows[m]);
-        window_tools::unwrapPhi(shape, tol);
-        double winFrac = 2 * numerical::dPi / (shape(3) - shape(0));
-        
-        std::unique_ptr<const GradientQuadrature<numerical::Real>> grad 
-        = createGradient<numerical::Real>(sz, ifPP, winFrac);
       
         std::unique_ptr<const PRT> prt = mUndulation[m]->createPRT(sz);
+        std::array<eigen::RMatX2, 2> overlap;
         
-        double dphi = (shape(3) - shape(0)) / std::get<1>(*mWindows[m]).maxCoeff(); // element uses max(Nr) from points
-        
-        eigen::DMatX2 ol_left, ol_right;
-        if (shape(0) != shape(1)) {
-            int nleft = (int)floor((shape(1) - shape(0) + tol) / dphi) + 1; // includes slope plus one point
-            ol_left = eigen::DMatX2::Zero(nleft, 2);
+        if (getM() > 1) {
+            double dphi = window_tools::setBounds2Pi(std::get<0>(*mWindows[m])(3) - std::get<0>(*mWindows[m])(0));
+            dphi /= std::get<1>(*mWindows[m]).maxCoeff();
             
-            eigen::DColX phi = eigen::DColX::LinSpaced(nleft + 1, shape(0), shape(0) + nleft * dphi);
-            window_tools::wrapPhi(phi);
+            // create gradient with scaling
+            double winFrac = 2 * numerical::dPi / (std::get<1>(*mWindows[m]).maxCoeff() + 2 * interpolation::NrExtend * dphi);
+            std::unique_ptr<const GradientQuadrature<numerical::Real>> grad 
+            = createGradient<numerical::Real>(sz, ifPP, winFrac);
             
-            ol_left.col(0) = phi;
-            ol_left.col(1) = computeWindowFraction(phi, m, false);
-        }
-        
-        if (shape(2) != shape(3)) {
-            int nright = (int)floor((shape(3) - shape(2) + tol) / dphi) + 1;
-            ol_right = eigen::DMatX2::Zero(nright, 2);
+            eigen::DMatX2 ol_left, ol_right;
+            int m_prev = window_tools::prevWin(m, getM());
+            int m_next = window_tools::nextWin(m, getM());
             
-            eigen::DColX phi = eigen::DColX::LinSpaced(nright + 1, shape(3) - nright * dphi, shape(3));
-            window_tools::wrapPhi(phi);
-            
-            ol_right.col(0) = phi;
-            ol_right.col(1) = computeWindowFraction(phi, m, false);
-        }
-        
-        std::array<eigen::RMatX2, 2> overlap = {ol_left.cast<numerical::Real>(), ol_right.cast<numerical::Real>()};
-        
-        if (mFluid3D[m]) {
-            std::unique_ptr<const Acoustic> acoustic = mMaterial[m]->createAcoustic();
-            std::array<std::shared_ptr<FluidPointWindow>, spectral::nPEM> wins;
-            for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
-                int igll = localMesh.mElementGLL(mLocalTag, ipnt);
-                wins[ipnt] = GLLPoints[igll].getFluidPointWindow(std::get<2>(*mWindows[m])(ipnt));
+            int dims = mFluid3D[m] ? 3 * spectral::nPEM : 9 * spectral::nPEM;
+            if (std::get<3>(*mWindows[m_prev])) {
+                eigen::DColX phi_left = eigen::DColX::LinSpaced(nr_ol[m](0), 0., nr_ol[m](0) - 1).array() * dphi + std::get<0>(*mWindows[m])(0);
+              
+                ol_left = eigen::DMatX2::Zero(nr_ol[m](0), 2);
+                ol_left.col(0) = phi_left;
+                window_tools::wrapPhi(phi_left);
+                ol_left.col(1) = computeWindowFunction(phi_left, m, false);
+                
+                if (interpTags(m, 0) >= 0) {
+                    ol_left.col(0) = ol_left.col(0).array() - phi1_interp[m_prev](1);
+                    if (ol_left(0, 0) < 0) ol_left.col(0) = ol_left.col(0).array() + 2 * numerical::dPi;
+                    ol_left.col(0) = ol_left.col(0).array() / width_interp[m_prev](1);
+                    interpolator->expandWorkspace(interpTags(m_prev, 1), dims);
+                }
             }
-            eleWins.push_back(std::make_unique<FluidElementWindow>(grad, prt, acoustic, wins, overlap));
-        } else {
-            std::unique_ptr<const Elastic> elastic =
-            mMaterial[m]->createElastic(attBuilder, computeWeightsCG4(ifPP));
-            std::array<std::shared_ptr<SolidPointWindow>, spectral::nPEM> wins;
-            for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
-                int igll = localMesh.mElementGLL(mLocalTag, ipnt);
-                wins[ipnt] = GLLPoints[igll].getSolidPointWindow(std::get<2>(*mWindows[m])(ipnt));
+            
+            if (std::get<3>(*mWindows[m])) {
+                eigen::DColX phi_right = eigen::DColX::LinSpaced(nr_ol[m](1), -(nr_ol[m](1) - 1), 0.).array() * dphi + std::get<0>(*mWindows[m])(3);
+                if (phi_right(0) < 0) phi_right = phi_right.array() + 2 * numerical::dPi;
+                ol_right = eigen::DMatX2::Zero(nr_ol[m](1), 2);
+                ol_right.col(0) = phi_right;
+                window_tools::wrapPhi(phi_right);
+                ol_right.col(1) = computeWindowFunction(phi_right, m, false);
+                
+                if (interpTags(m, 1) >= 0) {
+                    ol_right.col(0) = ol_right.col(0).array() - phi1_interp[m_next](0);
+                    if (ol_right(0, 0) < 0) ol_right.col(0) = ol_right.col(0).array() + 2 * numerical::dPi;
+                    ol_right.col(0) = ol_right.col(0).array() / width_interp[m_next](0);
+                    interpolator->expandWorkspace(interpTags(m_next, 0), dims);
+                }
             }
-            eleWins.push_back(std::make_unique<SolidElementWindow>(grad, prt, elastic, wins, overlap));
+            
+            std::array<eigen::RMatX2, 2> overlap = {ol_left.cast<numerical::Real>(), ol_right.cast<numerical::Real>()};
+            if (mFluid3D[m]) {
+                std::unique_ptr<const Acoustic> acoustic = mMaterial[m]->createAcoustic();
+                std::array<std::shared_ptr<FluidRCPointWindow<1, numerical::Real>>, spectral::nPEM> wins;
+                for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
+                    int igll = localMesh.mElementGLL(mLocalTag, ipnt);
+                    wins[ipnt] = GLLPoints[igll].getFluidPointWindowR(std::get<2>(*mWindows[m])(ipnt));
+                }
+                eleWins.push_back(std::make_unique<FluidElementWindow<FluidRCPointWindow<1, numerical::Real>>>(grad, prt, acoustic, wins, overlap, interpolator));
+            } else { 
+                std::unique_ptr<const Elastic> elastic =
+                mMaterial[m]->createElastic(attBuilder, computeWeightsCG4(ifPP));
+                std::array<std::shared_ptr<SolidRCPointWindow<3, numerical::Real>>, spectral::nPEM> wins;
+                for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
+                    int igll = localMesh.mElementGLL(mLocalTag, ipnt);
+                    wins[ipnt] = GLLPoints[igll].getSolidPointWindowR(std::get<2>(*mWindows[m])(ipnt));
+                }
+                eleWins.push_back(std::make_unique<SolidElementWindow<SolidRCPointWindow<3, numerical::Real>>>(grad, prt, elastic, wins, overlap, interpolator));
+            }
+            
+        } else { // have point windows with storage in Fourier
+            std::unique_ptr<const GradientQuadrature<numerical::Real>> grad 
+            = createGradient<numerical::Real>(sz, ifPP, 1.);
+            
+            if (mFluid3D[m]) {
+                std::unique_ptr<const Acoustic> acoustic = mMaterial[m]->createAcoustic();
+                std::array<std::shared_ptr<FluidRCPointWindow<1, numerical::ComplexR>>, spectral::nPEM> wins;
+                for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
+                    int igll = localMesh.mElementGLL(mLocalTag, ipnt);
+                    wins[ipnt] = GLLPoints[igll].getFluidPointWindowC(std::get<2>(*mWindows[m])(ipnt));
+                }
+                eleWins.push_back(std::make_unique<FluidElementWindow<FluidRCPointWindow<1, numerical::ComplexR>>>(grad, prt, acoustic, wins, overlap, nullptr));
+            } else { 
+                std::unique_ptr<const Elastic> elastic =
+                mMaterial[m]->createElastic(attBuilder, computeWeightsCG4(ifPP));
+                std::array<std::shared_ptr<SolidRCPointWindow<3, numerical::ComplexR>>, spectral::nPEM> wins;  
+                for (int ipnt = 0; ipnt < spectral::nPEM; ipnt++) {
+                    int igll = localMesh.mElementGLL(mLocalTag, ipnt);
+                    wins[ipnt] = GLLPoints[igll].getSolidPointWindowC(std::get<2>(*mWindows[m])(ipnt));
+                }
+                eleWins.push_back(std::make_unique<SolidElementWindow<SolidRCPointWindow<3, numerical::ComplexR>>>(grad, prt, elastic, wins, overlap, nullptr));
+            }
         }
     }
     
-    mElement = std::make_shared<Element>(mGlobalTag, eleWins, points);
-    mElement->setAlignment(tol);
-    
+    mElement = std::make_shared<Element>(mGlobalTag, eleWins, points, interpolator, interpTags);
     domain.addElement(mElement);
     
     // free dummy memory
@@ -645,43 +754,42 @@ eigen::DColX Quad::computeWindowPhi(int m, int ipnt, bool keep_unwrapped) const 
     return phi;
 }    
 
-eigen::DColX Quad::computeWindowFraction(eigen::DColX phi, int m, bool relative_phi) const { // called with relative phi
-    eigen::DColX frac = eigen::DColX::Constant(phi.rows(), 1);
-    eigen::DRow4 winShape = std::get<0>(*mWindows[m]);
-    
+eigen::DColX Quad::computeWindowFunction(eigen::DColX phi, int m, bool relative_phi) const {
     double tol = 2 * numerical::dPi * numerical::dEpsilon;
-    window_tools::unwrapPhi(winShape, tol);
+    eigen::DRow4 winShape = window_tools::unwrapPhi(std::get<0>(*mWindows[m]), tol);
+    
+    eigen::DColX frac = eigen::DColX::Constant(phi.rows(), 1);
     if (!relative_phi) { // might need unwrapping + check bounds
         window_tools::unwrapPhi(phi);
+        if (phi(0) < winShape(0) - tol) phi.array() += 2 * numerical::dPi;
         if (phi(0) < winShape(0) - tol || winShape(3) < phi(phi.rows() - 1) - tol) {
-            throw std::runtime_error("Quad::computeWindowFraction || Angle outside window bounds.");
+            throw std::runtime_error("Quad::computeWindowFunction || Angle outside window bounds.");
         }
     }
     if (winShape(0) == winShape(1) && winShape(2) == winShape(3)) { // no overlap
         return frac;
     }
-
+    
     if (relative_phi) {
         winShape.array() -= winShape(0);
-        winShape.array() *= 2 * numerical::dPi / winShape(4);
+        winShape.array() *= 2 * numerical::dPi / winShape(3);
     }
-
+    
     int i1 = -1, i2 = -1;
-    if (phi(0) > winShape(0) + tol) { // right edge only
-        i2 = 1;
-    } else if (phi(phi.size() - 1) < winShape(3) - tol) { // left edge only
-        i1 = phi.size() - 2;
-    } else {
+    if (phi(0) < winShape(1) + tol) { // left edge
         for (int i = 0; i < phi.size(); i++) {
-            if (i1 < 0) {
-                if (phi(i) > winShape(1) + tol) i1 = i;
-            } else if (phi(i) > winShape(2) + tol) {
-                i2 = i;
-                break;
-            }
+            i1 = i;
+            if (phi(i) >= winShape(1)) break;
         }
     }
-
+    
+    if (phi(phi.size() - 1) > winShape(2) - tol) { // right edge
+        for (int i = std::max(i1, 0); i < phi.size(); i++) {
+            i2 = i;
+            if (phi(i) >= winShape(2)) break;
+        }
+    }
+    
     if (i1 >= 0 && winShape(0) != winShape(1)) {
         frac.topRows(i1) = window_tools::getWindowSlope((phi.topRows(i1).array() - winShape(0)) / (winShape(1) - winShape(0)));
     }
@@ -689,28 +797,33 @@ eigen::DColX Quad::computeWindowFraction(eigen::DColX phi, int m, bool relative_
     if (i1 >= 0 && i2 >= 0) frac.segment(i1, i2 - i1).array() = 1.;
     
     if (i2 >= 0 && winShape(2) != winShape(3)) {
-        frac.bottomRows(phi.size() - i2) = window_tools::getWindowSlope((winShape(2) - phi.bottomRows(phi.size() - i2).array()) / (winShape(2) - winShape(3)));
+        frac.bottomRows(phi.size() - i2) = 1. - window_tools::getWindowSlope((winShape(2) - phi.bottomRows(phi.size() - i2).array()) / (winShape(2) - winShape(3))).array();
     }
 
     return frac;
 }
 
-eigen::DMatXX Quad::computeRelativeWindowPhis(const std::vector<double> &phis) const {
+eigen::DMatXX Quad::computeRelativeWindowPhis(const std::vector<double> &phis, std::vector<double> &winFunc) const {
     eigen::DMatXX out = eigen::DMatXX::Constant(phis.size(), mWindows.size(), -1);
+    
     for (int m = 0; m < mWindows.size(); m++) {
-        if (std::get<0>(*mWindows[m])(0) < std::get<0>(*mWindows[m])(3)) {
-            for (int i = 0; i < phis.size(); i++) {
-                if (std::get<0>(*mWindows[m])(0) <= phis[i] && phis[i] <= std::get<0>(*mWindows[m])(3)) {
-                    out(i, m) = phis[i] - std::get<0>(*mWindows[m])(0);
-                    out(i, m) *= (std::get<0>(*mWindows[m])(3) - std::get<0>(*mWindows[m])(0));
-                }
-            }
-        } else { // window wraps around phi = 0
-            for (int i = 0; i < phis.size(); i++) {
-                if (std::get<0>(*mWindows[m])(3) <= phis[i] || phis[i] <= std::get<0>(*mWindows[m])(0)) {
-                    out(i, m) = phis[i] - std::get<0>(*mWindows[m])(0);
-                    if (out(i, m) < 0) out(i, m) += 2 * numerical::dPi;
-                    out(i, m) *= (std::get<0>(*mWindows[m])(3) - std::get<0>(*mWindows[m])(0) + 2 * numerical::dPi);
+        double tol = 2 * numerical::dPi * numerical::dEpsilon;
+        eigen::DRow4 winShape = window_tools::unwrapPhi(std::get<0>(*mWindows[m]), tol);
+        
+        for (int i = 0; i < phis.size(); i++) {
+            double phi = phis[i];
+            if (std::get<0>(*mWindows[m])(0) > std::get<0>(*mWindows[m])(3) && phi < std::get<0>(*mWindows[m])(3)) phi += 2 * numerical::dPi;
+              
+            if (winShape(0) <= phi && phi <= winShape(3)) {
+                out(i, m) = phi - winShape(0);
+                out(i, m) *= (winShape(3) - winShape(0));
+                
+                if (phi <= winShape(1)) {
+                    winFunc.push_back(window_tools::getWindowSlope((phi - winShape(0)) / (winShape(1) - winShape(0))));
+                } else if (winShape(2) <= phi) {
+                    winFunc.push_back(1. - window_tools::getWindowSlope((phi - winShape(2)) / (winShape(3) - winShape(2))));
+                } else {
+                    winFunc.push_back(1.);
                 }
             }
         }

@@ -401,7 +401,8 @@ void Source::release(const SE_Model &sem, Domain &domain, double dt,
         }
         
         // get windows from phi
-        eigen::DRowX phi_local = quads[quadTag].computeRelativeWindowPhis(std::vector<double>{spz(1)}).row(0);
+        std::vector<double> winFunc; // this is not used
+        eigen::DRowX phi_local = quads[quadTag].computeRelativeWindowPhis(std::vector<double>{spz(1)}, winFunc).row(0);
         std::vector<std::pair<int, double>> windowPhis;
         for (int m = 0; m < phi_local.size(); m++) {
             if (phi_local(m) >= 0) windowPhis.push_back(std::make_pair(m, phi_local(m)));

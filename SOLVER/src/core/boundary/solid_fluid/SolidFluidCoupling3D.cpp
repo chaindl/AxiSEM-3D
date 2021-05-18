@@ -9,13 +9,13 @@
 //  solid-fluid boundary condition in 3D
 
 #include "SolidFluidCoupling3D.hpp"
-#include "SolidPointWindow.hpp"
 #include "fft.hpp"
+#include "PointWindow.hpp"
 
 // constructor
 SolidFluidCoupling3D::
-SolidFluidCoupling3D(const std::shared_ptr<SolidPointWindow> &spw,
-                     const std::shared_ptr<FluidPointWindow> &fpw,
+SolidFluidCoupling3D(const std::shared_ptr<PointWindow> &spw,
+                     const std::shared_ptr<PointWindow> &fpw,
                      const eigen::DMatX3 &n_unassmb,
                      const eigen::DMatX3 &n_assmb,
                      const eigen::DColX &massFluid):
@@ -35,20 +35,21 @@ void SolidFluidCoupling3D::checkCompatibility(int nr) const {
                                  "Incompatible sizes.");
     }
     
-    // expand workspace if needed
-    if (sSolidR.rows() < nr) {
-        // real
-        sSolidR.resize(nr, 3);
-        sFluidR.resize(nr);
-        // complex
-        int nc = nr / 2 + 1;
-        sSolidC.resize(nc, 3);
-        sFluidC.resize(nc);
+    if (mSolidPointWindow->storesFieldsInFourier()) {
+        if (sSolidR.rows() < nr) {
+            // real
+            sSolidR.resize(nr, 3);
+            sFluidR.resize(nr);
+            // complex
+            int nc = nr / 2 + 1;
+            sSolidC.resize(nc, 3);
+            sFluidC.resize(nc);
+        }
+        
+        // report request to FFT
+        fft::gFFT_1.addNR(nr);
+        fft::gFFT_3.addNR(nr);
     }
-    
-    // report request to FFT
-    fft::gFFT_1.addNR(nr);
-    fft::gFFT_3.addNR(nr);
 }
 
 // solid => fluid
@@ -72,6 +73,13 @@ void SolidFluidCoupling3D::coupleSolidToFluid(const eigen::CMatX3 &solidDispl,
     fluidStiff += sFluidC.topRows(nu_1);
 }
 
+void SolidFluidCoupling3D::coupleSolidToFluid(const eigen::RMatX3 &solidDispl,
+                                              eigen::RColX &fluidStiff) const {
+    // fluid => solid coupling term
+    fluidStiff += (mNormal_UnassembledMPI
+                 .cwiseProduct(solidDispl).rowwise().sum());
+}
+
 // fluid => solid
 void SolidFluidCoupling3D::coupleFluidToSolid(const eigen::CColX &fluidStiff,
                                               eigen::CMatX3 &solidStiff) const {
@@ -91,4 +99,11 @@ void SolidFluidCoupling3D::coupleFluidToSolid(const eigen::CColX &fluidStiff,
     
     // add coupling term
     solidStiff -= sSolidC.topRows(nu_1);
+}
+
+void SolidFluidCoupling3D::coupleFluidToSolid(const eigen::RColX &fluidStiff,
+                                              eigen::RMatX3 &solidStiff) const {
+    // fluid => solid coupling term
+    solidStiff -= (fluidStiff.asDiagonal() *
+                  mNormal_AssembledMPI_InvMassFluid);
 }

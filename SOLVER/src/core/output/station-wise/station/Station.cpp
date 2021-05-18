@@ -13,7 +13,7 @@
 
 // set element: inplane weights and Fourier exp
 void Station::setElement(const std::shared_ptr<Element> &element, const eigen::DRowN &weights,
-                         const std::vector<std::pair<int, double>> &windowPhis) {
+                         const std::vector<std::tuple<int, double, double>> &windowPhis) {
     // element
     mElement = element;
     mWindowPhis = windowPhis;
@@ -35,10 +35,10 @@ void Station::setElement(const std::shared_ptr<Element> &element, const eigen::D
 #ifndef _SAVE_MEMORY
     // precompute
     for (int m = 0; m < mWindowPhis.size(); m++) {
-        int nu_1 = mElement->getWindowNu_1(mWindowPhis[m].first);
+        int nu_1 = mElement->getWindowNu_1(std::get<0>(mWindowPhis[m]));
         eigen::CColX eiap_m = eigen::CColX::Zero(nu_1);
-        eigen_tools::computeTwoExpIAlphaPhi(nu_1, mWindowPhis[m].second, eiap_m);
-        m2ExpIAlphaPhi.push_back(eiap_m);
+        eigen_tools::computeTwoExpIAlphaPhi(nu_1, std::get<1>(mWindowPhis[m]), eiap_m);
+        m2ExpIAlphaPhi.push_back(eiap_m.array() * std::get<2>(mWindowPhis[m]));
     }
 #else
     // on-the-fly

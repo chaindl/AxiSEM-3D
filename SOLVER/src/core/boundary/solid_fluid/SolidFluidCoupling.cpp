@@ -11,15 +11,14 @@
 #include "SolidFluidCoupling.hpp"
 
 // point
-#include "SolidPointWindow.hpp"
-#include "FluidPointWindow.hpp"
+#include "PointWindow.hpp"
 
 class Point;
 #include <iostream>
 // constructor
 SolidFluidCoupling::
-SolidFluidCoupling(const std::shared_ptr<SolidPointWindow> &spw,
-                   const std::shared_ptr<FluidPointWindow> &fpw):
+SolidFluidCoupling(const std::shared_ptr<PointWindow> &spw,
+                   const std::shared_ptr<PointWindow> &fpw):
 mSolidPointWindow(spw), mFluidPointWindow(fpw) {
     if (mSolidPointWindow->getMeshTag() != mFluidPointWindow->getMeshTag()) {
         throw std::runtime_error("SolidFluidCoupling::SolidFluidCoupling || "
@@ -31,10 +30,18 @@ mSolidPointWindow(spw), mFluidPointWindow(fpw) {
 // compute coupling
 void SolidFluidCoupling::apply() const {
     // this order matters!
-    coupleSolidToFluid(mSolidPointWindow->getSolidFields().mDispl,
-                       mFluidPointWindow->getFluidFields().mStiff);
-    coupleFluidToSolid(mFluidPointWindow->getFluidFields().mStiff,
-                       mSolidPointWindow->getSolidFields().mStiff);
+    if (mSolidPointWindow->storesFieldsInFourier()) {
+        coupleSolidToFluid(mSolidPointWindow->getSolidFieldsC().mDispl,
+                           mFluidPointWindow->getFluidFieldsC().mStiff);
+        coupleFluidToSolid(mFluidPointWindow->getFluidFieldsC().mStiff,
+                           mSolidPointWindow->getSolidFieldsC().mStiff);    
+    } else {
+        coupleSolidToFluid(mSolidPointWindow->getSolidFieldsR().mDispl,
+                           mFluidPointWindow->getFluidFieldsR().mStiffR);
+        coupleFluidToSolid(mFluidPointWindow->getFluidFieldsR().mStiffR,
+                           mSolidPointWindow->getSolidFieldsR().mStiffR);
+      
+    }
 }
 
 

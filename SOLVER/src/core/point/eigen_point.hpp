@@ -30,6 +30,10 @@ namespace eigen {
     
     // window sampling 
     typedef Eigen::Matrix<numerical::Real, Eigen::Dynamic, 2> RMatX2;
+    
+    typedef Eigen::Matrix<numerical::Real, 1, Eigen::Dynamic> RRowX;
+    
+    typedef Eigen::Matrix<int, Eigen::Dynamic, 1> IColX;
 }
 
 #endif /* eigen_point_hpp */

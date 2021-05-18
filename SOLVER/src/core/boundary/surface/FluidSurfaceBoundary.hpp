@@ -14,7 +14,7 @@
 // point
 #include <memory>
 #include <vector>
-class FluidPointWindow;
+class PointWindow;
 
 // domain
 class Messaging;
@@ -22,7 +22,7 @@ class Messaging;
 class FluidSurfaceBoundary {
 public:
     // add fluid point
-    void addPointWindow(const std::shared_ptr<FluidPointWindow> &fpw) {
+    void addPointWindow(const std::shared_ptr<PointWindow> &fpw) {
         mFluidPointWindows.push_back(fpw);
     }
     
@@ -34,7 +34,7 @@ public:
     
 private:
     // points on surface
-    std::vector<std::shared_ptr<FluidPointWindow>> mFluidPointWindows;
+    std::vector<std::shared_ptr<PointWindow>> mFluidPointWindows;
 };
 
 #endif /* FluidSurfaceBoundary_hpp */

@@ -73,21 +73,38 @@ namespace eigen_tools {
     }
     
     
-    /////////////////////////////// Fourier ///////////////////////////////
+    // /////////////////////////////// Fourier ///////////////////////////////
+    // // compute 2 * exp(I * alpha * phi)
+    // template <typename CColX, typename T = typename CColX::Scalar::value_type>
+    // void computeTwoExpIAlphaPhi(int nu_1, double phi, CColX &twoExpIAlphaPhi) {
+    //     if (nu_1 <= 0) {
+    //         // nothing
+    //         return;
+    //     }
+    //     // no factor two on order zero
+    //     twoExpIAlphaPhi(0) = 1.;
+    //     // non-zero orders
+    //     static const T two = 2.;
+    //     std::complex<T> i_phi(0., phi);
+    //     for (int alpha = 1; alpha < nu_1; alpha++) {
+    //         twoExpIAlphaPhi(alpha) = two * exp((T)alpha * i_phi);
+    //     }
+    // }
+    // 
     // compute 2 * exp(I * alpha * phi)
-    template <typename CColX, typename T = typename CColX::Scalar::value_type>
-    void computeTwoExpIAlphaPhi(int nu_1, double phi, CColX &twoExpIAlphaPhi) {
+    template <typename CMatXX, typename T = typename CMatXX::Scalar::value_type>
+    void computeTwoExpIAlphaPhi(int nu_1, double phi, CMatXX &twoExpIAlphaPhi, int icol = 0) {
         if (nu_1 <= 0) {
             // nothing
             return;
         }
         // no factor two on order zero
-        twoExpIAlphaPhi(0) = 1.;
+        twoExpIAlphaPhi(0, icol) = 1.;
         // non-zero orders
         static const T two = 2.;
         std::complex<T> i_phi(0., phi);
         for (int alpha = 1; alpha < nu_1; alpha++) {
-            twoExpIAlphaPhi(alpha) = two * exp((T)alpha * i_phi);
+            twoExpIAlphaPhi(alpha, icol) = two * exp((T)alpha * i_phi);
         }
     }
     

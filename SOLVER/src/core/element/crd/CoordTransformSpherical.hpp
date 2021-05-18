@@ -98,6 +98,28 @@ public:
         }
     }
     
+    // (R,T,Z) -> (s,phi,z)
+    void transformRTZ_SPZ3(eigen::ar3_RMatPP_RM &ui) const {
+#ifdef _SAVE_MEMORY
+        // compute sin(theta)
+        computeSinOneTheta();
+#endif
+        // copy u0
+        eigen::CMatPP_RM &ui_alpha__0_ = sTemp0;
+        ui_alpha__0_.real() = ui[0];
+        
+        // spz0 = rtz0 * cos(t) + rtz2 * sin(t)
+        ui[0] = (ui_alpha__0_.real().cwiseProduct(xCos1t) +
+                 ui[2].cwiseProduct(xSin1t));
+        
+        // spz2 = rtz2 * cos(t) - rtz0 * sin(t)
+        ui[2] = (ui[2].cwiseProduct(xCos1t) -
+                 ui_alpha__0_.real().cwiseProduct(xSin1t));
+        
+        // rtz1 = spz1
+        // nothing
+    }
+        
     // (s,phi,z) -> (R,T,Z) for nabla
     void transformSPZ_RTZ9(eigen::vec_ar9_CMatPP_RM &nij, int nu_1) const {
 #ifdef _SAVE_MEMORY
@@ -180,6 +202,46 @@ public:
             // 0 * theta terms
             // nothing
         }
+    }
+        
+    // (R,T,Z) -> (s,phi,z) for nabla
+    void transformRTZ_SPZ9(eigen::ar9_RMatPP_RM &nij) const {
+#ifdef _SAVE_MEMORY
+        // compute sin(theta)
+        computeSinOneTwoTheta();
+#endif
+        // 2 * theta terms
+        eigen::CMatPP_RM &s08 = sTemp0;
+        eigen::CMatPP_RM &d08 = sTemp1;
+        eigen::CMatPP_RM &s26 = sTemp2;
+        eigen::CMatPP_RM &d26 = sTemp3;
+        s08.real() = nij[0] + nij[8];
+        d08.real() = nij[0] - nij[8];
+        s26.real() = nij[2] + nij[6];
+        d26.real() = nij[2] - nij[6];
+        nij[0] = (s08.real() + d08.real().cwiseProduct(xCos2t) +
+                  s26.real().cwiseProduct(xSin2t)) * half;
+        nij[2] = (d26.real() + s26.real().cwiseProduct(xCos2t) -
+                  d08.real().cwiseProduct(xSin2t)) * half;
+        nij[6] = nij[2] - d26.real();
+        nij[8] = s08.real()- nij[0];
+        
+        // 1 * theta terms
+        eigen::CMatPP_RM &nij_alpha__1_ = sTemp0;
+        nij_alpha__1_.real() = nij[1];
+        nij[1] = (nij_alpha__1_.real().cwiseProduct(xCos1t) +
+                  nij[7].cwiseProduct(xSin1t));
+        nij[7] = (nij[7].cwiseProduct(xCos1t) -
+                  nij_alpha__1_.real().cwiseProduct(xSin1t));
+        eigen::CMatPP_RM &nij_alpha__3_ = sTemp0;
+        nij_alpha__3_.real() = nij[3];
+        nij[3] = (nij_alpha__3_.real().cwiseProduct(xCos1t) +
+                  nij[5].cwiseProduct(xSin1t));
+        nij[5] = (nij[5].cwiseProduct(xCos1t) -
+                  nij_alpha__3_.real().cwiseProduct(xSin1t));
+        
+        // 0 * theta terms
+        // nothing
     }
     
     // (s,phi,z) -> (R,T,Z) for Voigt

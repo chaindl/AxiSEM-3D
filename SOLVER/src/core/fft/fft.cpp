@@ -23,6 +23,7 @@ namespace fft {
     // global FFT solvers
     SolverFFTW<Real, 1> gFFT_1;
     SolverFFTW<Real, 3> gFFT_3;
+    SolverFFTW<Real, nPEM * 1> gFFT_N1;
     SolverFFTW<Real, nPEM * 3> gFFT_N3;
     SolverFFTW<Real, nPEM * 6> gFFT_N6;
     SolverFFTW<Real, nPEM * 9> gFFT_N9;
@@ -32,10 +33,11 @@ namespace fft {
         // split time limit
         double tf1 = gFFT_1.timeFactorForPlanning();
         double tf3 = gFFT_3.timeFactorForPlanning();
+        double tfN1 = gFFT_N1.timeFactorForPlanning();
         double tfN3 = gFFT_N3.timeFactorForPlanning();
         double tfN6 = gFFT_N6.timeFactorForPlanning();
         double tfN9 = gFFT_N9.timeFactorForPlanning();
-        double tfSum = std::max(tf1 + tf3 + tfN3 + tfN6 + tfN9,
+        double tfSum = std::max(tf1 + tf3 + tfN1 + tfN3 + tfN6 + tfN9,
                                 numerical::dEpsilon);
         double timeLimitUnit = timeLimitForPlanning / tfSum;
         
@@ -50,6 +52,12 @@ namespace fft {
         gFFT_3.createPlans(timeLimitUnit * tf3);
         internal::diagnosticInfo(gFFT_3.getPlannedNRs(), 3);
         timer::gPreloopTimer.ended("FFT with HOWMANY = 3");
+        
+        // N1
+        timer::gPreloopTimer.begin("FFT with HOWMANY = # GLL per Element * 1");
+        gFFT_N1.createPlans(timeLimitUnit * tfN1);
+        internal::diagnosticInfo(gFFT_N1.getPlannedNRs(), nPEM);
+        timer::gPreloopTimer.ended("FFT with HOWMANY = # GLL per Element * 1");
         
         // N3
         timer::gPreloopTimer.begin("FFT with HOWMANY = # GLL per Element * 3");
@@ -77,11 +85,13 @@ namespace fft {
         ss << boxTitle("FFT Solvers for " + stageKey);
         ss << boxEquals(0, 43, "real number precision", typeName<Real>());
         ss << boxEquals(0, 43, "\"howmany\" on GLL points", "{1, 3}");
-        ss << boxEquals(0, 43, "\"howmany\" on elements", "{N3, N6, N9}");
+        ss << boxEquals(0, 43, "\"howmany\" on elements", "{N1, N3, N6, N9}");
         ss << internal::verbose("FFT on GLL points, \"howmany\" = 1",
                                 gFFT_1.getPlannedNRs(), 1);
         ss << internal::verbose("FFT on GLL points, \"howmany\" = 3",
                                 gFFT_3.getPlannedNRs(), 3);
+        ss << internal::verbose("FFT on elements, \"howmany\" = N",
+                                gFFT_N1.getPlannedNRs(), nPEM * 1);                        
         ss << internal::verbose("FFT on elements, \"howmany\" = N3",
                                 gFFT_N3.getPlannedNRs(), nPEM * 3);
         ss << internal::verbose("FFT on elements, \"howmany\" = N6",

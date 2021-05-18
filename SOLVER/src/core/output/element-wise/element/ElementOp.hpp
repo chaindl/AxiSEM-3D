@@ -28,9 +28,10 @@ public:
     
     /////////////////////////// setup ///////////////////////////
     // set element
-    void setElement(const std::shared_ptr<Element> &element, eigen::RMatXX phiLocal) {
+    void setElement(const std::shared_ptr<Element> &element, eigen::RMatXX phiLocal, std::vector<double> windowScaling) {
         mElement = element;
         mPhiLocal = phiLocal;
+        mScaling = windowScaling;
     }
     
     ////////////////////////// small stuff no longer bound to element type //////////////////////////
@@ -224,6 +225,7 @@ protected:
     // element
     std::shared_ptr<Element> mElement = nullptr;
     eigen::RMatXX mPhiLocal;
+    std::vector<double> mScaling;
 };
 
 #endif /* ElementOp_hpp */

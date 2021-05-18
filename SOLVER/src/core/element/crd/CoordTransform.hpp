@@ -26,6 +26,10 @@ public:
     // (R,T,Z) -> (s,phi,z)
     virtual
     void transformRTZ_SPZ3(eigen::vec_ar3_CMatPP_RM &ui, int nu_1) const = 0;
+        
+    // (R,T,Z) -> (s,phi,z)
+    virtual
+    void transformRTZ_SPZ3(eigen::ar3_RMatPP_RM &ui) const = 0;
     
     // (s,phi,z) -> (R,T,Z) for nabla
     virtual
@@ -34,6 +38,10 @@ public:
     // (R,T,Z) -> (s,phi,z) for nabla
     virtual
     void transformRTZ_SPZ9(eigen::vec_ar9_CMatPP_RM &nij, int nu_1) const = 0;
+            
+    // (R,T,Z) -> (s,phi,z)
+    virtual
+    void transformRTZ_SPZ9(eigen::ar9_RMatPP_RM &ui) const = 0;
     
     // (s,phi,z) -> (R,T,Z) for Voigt
     virtual
